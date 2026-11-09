@@ -1,0 +1,2845 @@
+<!doctype html>
+<!-- 
+  CRITICAL DEVELOPER GUIDELINES:
+  1. This project MUST remain a completely self-contained HTML file.
+  2. Strictly no external dependencies or external directory structures should be added.
+  3. ALWAYS update the version number and build description in the 'System Metadata' section with every build.
+  4. Keep the file directory absolutely minimal.
+-->
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aether-XPBD | WebGPU Engine</title>
+    <style>
+      :root {
+        --bg: #1a1a24;
+        --surface: rgba(10, 10, 14, 0.9);
+        --border: rgba(255, 255, 255, 0.08);
+        --accent: #6366f1;
+        --accent-glow: rgba(99, 102, 241, 0.3);
+        --text-main: #f1f5f9;
+        --text-muted: #64748b;
+        --success: #10b981;
+        --sidebar-w: 300px;
+        --btn-bg: rgba(255, 255, 255, 0.04);
+        --stat-bg: rgba(0, 0, 0, 0.2);
+        transition: background 0.5s ease, color 0.5s ease;
+      }
+
+      [data-theme="light"] {
+        --bg: #6b7a8f;
+        --sidebar-bg: #121826;
+        --surface: rgba(26, 31, 46, 0.98);
+        --border: rgba(255, 255, 255, 0.12);
+        --text-main: #ffffff;
+        --text-muted: #8a99af;
+        --accent: #818cf8;
+        --accent-glow: rgba(129, 140, 248, 0.25);
+        --btn-bg: rgba(255, 255, 255, 0.08);
+        --stat-bg: rgba(0, 0, 0, 0.35);
+      }
+
+      [data-theme="light"] .sidebar {
+        background: var(--sidebar-bg);
+        border-right: 1px solid var(--border);
+      }
+      [data-theme="light"] .card {
+        background: var(--surface);
+        border-color: var(--border);
+      }
+      [data-theme="light"] .card-header {
+        background: rgba(0, 0, 0, 0.2);
+      }
+      [data-theme="light"] .tool-btn {
+        background: var(--btn-bg);
+        border: 1px solid var(--border);
+        color: var(--text-main);
+      }
+      [data-theme="light"] .tool-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: var(--accent);
+      }
+      [data-theme="light"] .tool-btn.active {
+        background: var(--accent);
+        color: white;
+        border-color: var(--accent);
+      }
+      [data-theme="light"] .stat-item {
+        background: var(--stat-bg);
+        border-color: var(--border);
+      }
+      [data-theme="light"] input[type="range"] {
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      body, .card, .card-header, .stat-item, .tool-btn, .icon-box, .status-pill, input[type="range"] {
+        transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text-main);
+        font-family: "Inter", system-ui, sans-serif;
+        overflow: hidden;
+        cursor: crosshair;
+      }
+
+      #canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+        touch-action: none;
+      }
+
+      .main-viewport {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        /* Removed padding-left transition to prevent expensive canvas re-renders */
+      }
+
+      /* Viewport reflow is now handled via camera shift in JS for better performance */
+
+      /* Sidebar System */
+      .sidebar {
+        width: var(--sidebar-w);
+        height: 100vh;
+        background: rgba(8, 8, 12, 0.95);
+        border-right: 1px solid var(--border);
+        backdrop-filter: blur(20px);
+        display: flex;
+        flex-direction: column;
+        z-index: 100;
+        position: fixed;
+        left: 0;
+        top: 0;
+        /* Driven by JS for perfect sync with 3D camera */
+        transform: translateX(-100%);
+        will-change: transform;
+      }
+      .sidebar.collapsed {
+        /* JS handles the specific transform value */
+      }
+
+      .sidebar-toggle {
+        position: fixed;
+        left: 20px;
+        top: 20px;
+        width: 40px;
+        height: 40px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 110;
+        color: var(--text-muted);
+        transition: color 0.3s, border-color 0.3s, transform 0.3s, box-shadow 0.3s;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        will-change: left;
+      }
+      .sidebar:not(.collapsed) ~ .sidebar-toggle,
+      .sidebar-toggle:has(~ .sidebar:not(.collapsed)) {
+        /* JS handles the specific left value */
+      }
+      .sidebar-toggle:hover {
+        color: var(--accent);
+        border-color: var(--accent);
+        transform: scale(1.05);
+      }
+
+      .sidebar-scroll {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 24px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+
+      .sidebar-scroll::-webkit-scrollbar {
+        display: none;
+      }
+
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.02);
+        transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+        overflow: hidden;
+        flex-shrink: 0;
+        display: grid;
+        grid-template-rows: auto 0fr;
+      }
+
+      .card:not(.minimized) {
+        grid-template-rows: auto 1fr;
+        background: rgba(255, 255, 255, 0.04);
+        border-color: rgba(255, 255, 255, 0.12);
+      }
+
+      .card-header {
+        padding: 14px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: pointer;
+        background: rgba(255, 255, 255, 0.01);
+        z-index: 2;
+      }
+
+      .card-inner {
+        overflow: hidden;
+        min-height: 0;
+      }
+
+      .card-content {
+        padding: 20px 16px;
+        opacity: 1;
+        transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+        transform: translateY(0);
+      }
+
+      .card-content > *:first-child,
+      .card-content .control-group:first-child {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none;
+      }
+
+      .card.minimized .card-content {
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(-8px);
+      }
+      .card.minimized {
+        border-color: transparent;
+        background: transparent;
+      }
+
+      .header-main {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .icon-box {
+        width: 32px;
+        height: 32px;
+        background: var(--accent-glow);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        color: var(--accent);
+      }
+
+      .title-group h1 {
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        color: var(--accent);
+        text-transform: uppercase;
+      }
+      .title-group p {
+        font-size: 10px;
+        color: var(--text-muted);
+        font-weight: 500;
+      }
+
+      .stats-grid {
+        margin-top: 12px;
+      }
+      .stat-item {
+        background: rgba(0, 0, 0, 0.2);
+        padding: 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.03);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .stat-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        font-weight: 800;
+        color: var(--text-muted);
+      }
+      .stat-value {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--success);
+      }
+      .stat-value span {
+        font-size: 10px;
+        margin-left: 4px;
+        opacity: 0.6;
+      }
+
+      .control-group {
+        margin-top: 18px;
+        padding-top: 18px;
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+      }
+      .control-label {
+        font-size: 9px;
+        font-weight: 800;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        letter-spacing: 0.05em;
+      }
+      .control-label span {
+        color: var(--accent);
+        font-family: monospace;
+        font-size: 11px;
+      }
+
+      input[type="range"] {
+        width: 100%;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 2px;
+        appearance: none;
+        outline: none;
+        margin: 8px 0;
+        cursor: pointer;
+        transition: background 0.2s, background-color 0.8s;
+      }
+      input[type="range"]:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+      input[type="range"]::-webkit-slider-thumb {
+        appearance: none;
+        width: 14px;
+        height: 14px;
+        background: var(--accent);
+        border-radius: 50%;
+        cursor: pointer;
+        border: 2.5px solid #08080c;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+      }
+
+      .btn-group-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .btn-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .tool-btn {
+        background: var(--btn-bg);
+        border: 1px solid var(--border);
+        color: var(--text-main);
+        padding: 8px 10px;
+        border-radius: 8px;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 36px;
+      }
+      .tool-btn:hover {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: rgba(255, 255, 255, 0.2);
+        transform: translateY(-1px);
+      }
+      .tool-btn.active {
+        background: var(--accent);
+        color: white;
+        border-color: transparent;
+        box-shadow: 0 4px 12px var(--accent-glow);
+      }
+
+      .status-pill {
+        font-size: 9px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.1);
+      }
+      .active .status-pill {
+        background: rgba(255, 255, 255, 0.2);
+      }
+
+      .loader {
+        border: 2px solid rgba(255, 255, 255, 0.1);
+        border-top: 2px solid currentColor;
+        border-radius: 50%;
+        width: 16px;
+        height: 16px;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .hint-anchor {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        z-index: 200;
+      }
+
+      .hint-btn {
+        width: 36px;
+        height: 36px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-muted);
+        cursor: pointer;
+        transition: all 0.3s;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+      }
+
+      .hint-btn:hover {
+        color: var(--accent);
+        border-color: var(--accent);
+        transform: scale(1.1);
+      }
+
+      .hint {
+        position: absolute;
+        bottom: calc(100% + 12px);
+        right: 0;
+        padding: 16px 20px;
+        border-radius: 16px;
+        font-size: 10px;
+        font-weight: 800;
+        color: var(--text-muted);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        border: 1px solid var(--border);
+        backdrop-filter: blur(12px);
+        pointer-events: none;
+        opacity: 0;
+        transform: translateY(10px);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        z-index: 50;
+        white-space: nowrap;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+        background: var(--surface);
+      }
+
+      .hint-btn:hover + .hint {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .hint span b {
+        color: var(--accent);
+        margin-right: 8px;
+      }
+
+      #loading-screen {
+        position: fixed;
+        inset: 0;
+        background: var(--bg);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+        gap: 20px;
+      }
+      .loader {
+        width: 48px;
+        height: 48px;
+        border: 2px solid rgba(99, 102, 241, 0.1);
+        border-top: 2px solid var(--accent);
+        border-radius: 50%;
+        animation: spin 1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      }
+      @keyframes spin {
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+      .loading-text {
+        font-size: 11px;
+        color: var(--accent);
+        text-transform: uppercase;
+        letter-spacing: 0.3em;
+        font-weight: 700;
+      }
+
+      .chevron {
+        transition: transform 0.3s;
+        color: var(--text-muted);
+      }
+      .card.minimized .chevron {
+        transform: rotate(-90deg);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="loading-screen">
+      <div class="loader"></div>
+      <p class="loading-text" id="status">Syncing Compute Pipe</p>
+    </div>
+
+    <div class="main-viewport">
+      <canvas id="canvas"></canvas>
+    </div>
+
+    <div class="sidebar collapsed" id="sidebar">
+      <div class="sidebar-scroll">
+        <!-- SIMULATION -->
+        <div class="card" id="sim-card">
+          <div
+            class="card-header"
+            onclick="document.getElementById('sim-card').classList.toggle('minimized')"
+          >
+            <div class="header-main">
+              <div class="icon-box">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                  <line x1="3" y1="9" x2="21" y2="9"></line>
+                  <line x1="9" y1="21" x2="9" y2="9"></line>
+                </svg>
+              </div>
+              <div class="title-group">
+                <h1>Simulation</h1>
+                <p>Compute Metrics</p>
+              </div>
+            </div>
+            <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </div>
+          <div class="card-inner">
+            <div class="card-content">
+              <div class="stats-grid" style="display: flex; flex-direction: column; gap: 8px">
+                <div style="display: flex; gap: 8px; align-items: stretch;">
+                  <button class="tool-btn" id="btn-fps-toggle" onclick="cycleFPS()" style="flex: 2; justify-content: space-between; background: var(--btn-bg);">
+                    FPS Cap
+                    <span class="status-pill" id="fps-status">60 FPS</span>
+                  </button>
+                  <div class="stat-item" style="flex: 1; min-height: 44px; height: auto; background: var(--stat-bg); justify-content: center; flex-direction: column; gap: 0;">
+                    <div class="stat-value" style="font-size: 16px; margin: 0; line-height: 1">
+                      <span id="fps-val" style="color: var(--success); opacity: 1; margin: 0; font-size: 16px;">--</span>
+                    </div>
+                    <div class="stat-label" style="font-size: 9px; margin-top: 2px">RATE</div>
+                  </div>
+                </div>
+                <div class="stat-item" style="height: 44px; background: var(--stat-bg)">
+                  <div class="stat-label">System Load</div>
+                  <div class="stat-value">
+                    <span id="load-val">--</span> <span style="font-size: 8px">GPU</span>
+                  </div>
+                </div>
+              </div>
+              <div class="control-group">
+                <button class="tool-btn" id="btn-engine-priority" onclick="toggleEnginePriority()" style="width: 100%; justify-content: space-between; background: var(--btn-bg); color: var(--text-main)">
+                  Engine Priority <span class="status-pill" id="priority-status">STABILITY</span>
+                </button>
+              </div>
+              <div class="control-group">
+                <div class="btn-stack" style="display: flex; flex-direction: row; gap: 8px;">
+                  <button class="tool-btn" id="btn-reboot" onclick="resetSim()" style="flex: 3; background: rgba(239, 68, 68, 0.1); color: #ef4444; border-color: rgba(239, 68, 68, 0.2);">
+                    <span id="reboot-text">REBOOT SIMULATION</span>
+                    <div id="reboot-spinner" class="loader" style="width: 12px; height: 12px; border-width: 1px; display: none;"></div>
+                  </button>
+                  <button class="tool-btn" onclick="resetSettings()" title="Reset All Settings" style="flex: 1; justify-content: center; background: var(--btn-bg); color: var(--text-muted);">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                      <path d="M3 3v5h5"></path>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="control-group">
+                <button class="tool-btn" onclick="toggleTheme()" style="width: 100%; justify-content: space-between; background: var(--btn-bg); color: var(--text-main); border: 1px solid rgba(255, 255, 255, 0.1);">
+                  UI Appearance <span class="status-pill" id="theme-status">LIGHT</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PARTICLE SETTINGS -->
+        <div class="card" id="particle-card">
+          <div class="card-header" onclick="document.getElementById('particle-card').classList.toggle('minimized')">
+            <div class="header-main">
+              <div class="icon-box" style="background: rgba(16, 185, 129, 0.1); color: #10b981">
+                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"></path><path d="m16.2 4.2 2.8 2.8"></path><path d="M18 12h4"></path><path d="m16.2 19.8 2.8-2.8"></path><path d="M12 18v4"></path><path d="m4.2 19.8 2.8-2.8"></path><path d="M2 12h4"></path><path d="m4.2 4.2 2.8 2.8"></path></svg>
+              </div>
+              <div class="title-group">
+                <h1>Particle Settings</h1>
+                <p>Geometry & Density</p>
+              </div>
+            </div>
+            <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="card-inner">
+            <div class="card-content">
+              <div class="control-group">
+                <button class="tool-btn active" onclick="cycleGeometry()" style="width: 100%; justify-content: space-between; background: var(--accent); color: white; border-color: transparent; box-shadow: 0 4px 12px var(--accent-glow);">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"></path><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path><path d="m3.3 7 8.7 5 8.7-5"></path><path d="M12 22V12"></path></svg>
+                     <span>Particle Geometry</span>
+                  </div>
+                  <span class="status-pill" id="v-type" style="background: rgba(255, 255, 255, 0.2)">TRUE SPHERE</span>
+                </button>
+              </div>
+              <div class="control-group">
+                <button
+                class="tool-btn active"
+                onclick="window.toggleCollision()"
+                id="btn-collision"
+                style="width: 100%"
+              >
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"></path></svg>
+                  <span>Particle Collisions</span>
+                </div>
+                <div class="status-pill" id="collision-status">RAGDOLL</div>
+              </button>
+              </div>
+              <div class="control-group">
+                <div class="control-label">Rotation <span id="v-rotation">OFF</span></div>
+                <div style="display: flex; gap: 8px">
+                  <button class="tool-btn active" id="rot-0" onclick="setRotation(0)" style="flex: 1; font-size: 8px">Off</button>
+                  <button class="tool-btn" id="rot-1" onclick="setRotation(1)" style="flex: 1; font-size: 8px">Spin</button>
+                  <button class="tool-btn" id="rot-2" onclick="setRotation(2)" style="flex: 1; font-size: 8px">Random</button>
+                  <button class="tool-btn" id="rot-3" onclick="setRotation(3)" style="flex: 1; font-size: 8px">Ragdoll</button>
+                </div>
+              </div>
+              <div class="control-group">
+                <div class="control-label">Particle Size <span id="v-psize">1.0</span></div>
+                <input type="range" min="0.5" max="3" step="0.1" value="1.0" id="psize-slider" oninput="setParticleSize(this.value)" />
+              </div>
+              <div class="control-group">
+                <div class="control-label">Particle Density <span id="v-density">16384</span></div>
+                <input id="density-slider" type="range" min="1024" max="16384" step="1024" value="16384" oninput="setDensity(this.value)" />
+                <p style="font-size: 8px; color: var(--text-muted); margin-top: 4px; opacity: 0.5;">Optimized 2ⁿ alignment for GPU Workgroups</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PHYSICS & INTERACTIONS -->
+        <div class="card" id="physics-card">
+          <div class="card-header" onclick="document.getElementById('physics-card').classList.toggle('minimized')">
+            <div class="header-main">
+              <div class="icon-box" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>
+              </div>
+              <div class="title-group">
+                <h1>Physics & Interactions</h1>
+                <p>Gravity & Modulation</p>
+              </div>
+            </div>
+            <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="card-inner">
+            <div class="card-content">
+              <div class="control-group">
+                <div class="control-label">Gravity Mode <span id="v-grav">Zero G</span></div>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px">
+                  <button class="tool-btn active" id="btn-grav-zero" onclick="setGravity(0, 'zero')" style="flex: 1 1 45%; font-size: 9px; justify-content: center;">Zero G</button>
+                  <button class="tool-btn" id="btn-grav-norm" onclick="setGravity(9.8, 'norm')" style="flex: 1 1 45%; font-size: 9px; justify-content: center;">Normal (Earth)</button>
+                  <button class="tool-btn" id="btn-grav-high" onclick="setGravity(24.79, 'high')" style="flex: 1 1 45%; font-size: 9px; justify-content: center;">Strong (Jupiter)</button>
+                  <button class="tool-btn" id="btn-grav-inv" onclick="setGravity(-9.8, 'inv')" style="flex: 1 1 45%; font-size: 9px; justify-content: center;">Inverted</button>
+                </div>
+              </div>
+              <div class="control-group">
+                <div class="control-label">Interaction Mode <span id="v-imode">Warp</span></div>
+                <div class="btn-group-row" style="display: flex; gap: 8px;">
+                  <button class="tool-btn active" id="mode-0" onclick="setInterMode(0)" style="flex: 1; font-size: 9px; padding: 10px 4px; justify-content: center;">Warp</button>
+                  <button class="tool-btn" id="mode-1" onclick="setInterMode(1)" style="flex: 1; font-size: 9px; padding: 10px 4px; justify-content: center;">Attract</button>
+                  <button class="tool-btn" id="mode-2" onclick="setInterMode(2)" style="flex: 1; font-size: 9px; padding: 10px 4px; justify-content: center;">Vortex</button>
+                  <button class="tool-btn" id="mode-3" onclick="setInterMode(3)" style="flex: 1; font-size: 9px; padding: 10px 4px; justify-content: center;">Collider</button>
+                </div>
+              </div>
+              <div class="control-group">
+                <div class="control-label">Interaction Force <span id="v-force">1.0</span></div>
+                <input id="force-slider" type="range" min="0.2" max="5" step="0.1" value="1.0" oninput="setForce(this.value)" />
+              </div>
+              <div class="control-group">
+                <div class="control-label">Central Collider Size <span id="v-objs">12.0</span></div>
+                <input id="osize-slider" type="range" min="1" max="25" step="0.5" value="12" oninput="setObjectSize(this.value)" />
+              </div>
+              <div class="control-group">
+                <div class="control-label">Entropy Agitation <span id="v-entropy">0.0</span></div>
+                <input id="entropy-slider" type="range" min="0" max="1" step="0.05" value="0" oninput="setEntropy(this.value)" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEWPORT & ATMOSPHERE -->
+        <div class="card" id="viewport-card">
+          <div class="card-header" onclick="document.getElementById('viewport-card').classList.toggle('minimized')">
+            <div class="header-main">
+              <div class="icon-box" style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"></path><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path></svg>
+              </div>
+              <div class="title-group">
+                <h1>Viewport & Atmosphere</h1>
+                <p>Lighting & Camera</p>
+              </div>
+            </div>
+            <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="card-inner">
+            <div class="card-content">
+              <div class="control-group">
+                <div class="control-label">Particle Color <span id="v-color">CHROMATIC</span></div>
+                <div style="display: flex; gap: 8px">
+                  <button class="tool-btn" id="col-mono" onclick="cycleColors('mono')" style="flex: 1; font-size: 8px">Mono</button>
+                  <button class="tool-btn" id="col-tones" onclick="cycleColors('tones')" style="flex: 1; font-size: 8px">Tones</button>
+                  <button class="tool-btn active" id="col-themes" onclick="cycleColors('themes')" style="flex: 1; font-size: 8px">Themes</button>
+                </div>
+              </div>
+              <div class="control-group">
+                <div class="control-label">Lighting Intensity <span id="v-light">1.0</span></div>
+                <input type="range" min="0" max="2" step="0.1" value="1.0" id="light-slider" oninput="setLighting(this.value)" />
+              </div>
+              <div class="control-group">
+                <button class="tool-btn" id="btn-cam-lock" onclick="cycleDrift()" style="width: 100%; justify-content: space-between; background: var(--btn-bg); color: var(--text-main)">
+                  Orbit Drift <span class="status-pill" id="cam-status">OFF</span>
+                </button>
+              </div>
+              <div class="control-group">
+                <div class="control-label">Drift Speed <span id="v-drift">0.5</span></div>
+                <input type="range" min="0.1" max="2" step="0.1" value="0.5" id="drift-slider" oninput="setDriftSpeed(this.value)" />
+              </div>
+              <div class="control-group">
+                <div class="control-label">Zoom Level (Focus) <span id="v-zoom">0.5</span></div>
+                <input type="range" min="0" max="1" step="0.01" value="0.5" id="zoom-slider" oninput="setZoom(this.value)" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- System Metadata -->
+        <div
+          class="card"
+          id="info-card"
+          style="
+            margin-top: 24px;
+            background: transparent;
+            border: none;
+            border-top: 1px solid var(--border);
+            border-radius: 0;
+            display: block;
+          "
+        >
+          <div
+            class="card-header"
+            style="padding: 24px 16px 32px 16px; cursor: default; display: flex; flex-direction: column; align-items: flex-start; gap: 24px;"
+          >
+            <div class="header-main" style="gap: 16px; align-items: center; width: 100%;">
+              <div
+                class="icon-box"
+                style="
+                  width: 52px;
+                  height: 52px;
+                  background: var(--border);
+                  color: var(--text-muted);
+                  border-radius: 12px;
+                  flex-shrink: 0;
+                "
+              >
+                <svg
+                  width="28"
+                  height="28"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path
+                    d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                  ></path>
+                </svg>
+              </div>
+              <div class="title-group" style="flex: 1">
+                <h1
+                  style="
+                    font-size: 16px;
+                    font-weight: 800;
+                    color: var(--text-main);
+                    letter-spacing: -0.02em;
+                    text-transform: none;
+                    line-height: 1.1;
+                  "
+                >
+                  Aether-XPBD
+                  <span style="display: block; font-size: 10px; font-weight: 500; opacity: 0.5; margin-top: 2px;">WebGPU Physics Engine</span>
+                </h1>
+                <p style="font-size: 11px; font-weight: 700; color: var(--accent); opacity: 0.9; margin-top: 4px;">
+                  v1.4.5
+                </p>
+              </div>
+            </div>
+
+            <div style="width: 100%; border-top: 1px solid var(--border); padding-top: 20px;">
+              <p style="font-size: 10px; color: var(--text-main); font-weight: 500; margin-bottom: 12px; line-height: 1.4; opacity: 0.8;">
+                Dynamic grid exit & per-frame GC elimination
+              </p>
+              
+              <div
+                style="
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                    opacity: 0.35;
+                    font-size: 9px;
+                    font-weight: 800;
+                    text-transform: uppercase;
+                    letter-spacing: 0.08em;
+                    color: var(--text-muted);
+                  "
+                >
+                  <div style="display: flex; justify-content: space-between">
+                    <span>Compiled</span>
+                    <!-- DEVELOPER NOTE: Always update this timestamp on every build. Format: YYYY-MM-DD HH:mm (GMT+7 Hanoi time) -->
+                    <span>2026-05-16 20:14</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between">
+                    <span>Tier</span>
+                    <span>Direct3D 12+ / Metal</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-toggle" onclick="toggleSidebar()">
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <line x1="3" y1="12" x2="21" y2="12"></line>
+        <line x1="3" y1="6" x2="21" y2="6"></line>
+        <line x1="3" y1="18" x2="21" y2="18"></line>
+      </svg>
+    </div>
+
+    <div class="hint-anchor">
+      <div class="hint-btn">
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M12 16v-4"></path>
+          <path d="M12 8h.01"></path>
+        </svg>
+      </div>
+      <div class="hint">
+        <span><b>Left Click</b> Interact</span>
+        <span><b>Right Click</b> Orbit</span>
+        <span><b>Middle / Shift</b> Pan</span>
+        <span><b>Scroll</b> Zoom</span>
+      </div>
+    </div>
+
+    <script type="module">
+      const PHYSICS_WGSL = `
+        struct Particle {
+            pos: vec4f,
+            vel: vec4f,
+            prev_pos: vec4f,
+            ori: vec4f,      // Quaternion [x, y, z, w]
+            ang_vel: vec4f,  // Angular Velocity [wx, wy, wz, -]
+            prev_ori: vec4f,
+            color: vec4f,
+            aux: vec4f,      // Padding/Future use
+        };
+
+        struct Params {
+            dt: f32,
+            grav: f32,
+            rest: f32,
+            rad: f32,
+            count: f32,
+            grid: f32,
+            bounds: f32,
+            time: f32,
+            mpos: vec4f, 
+            vdir: vec4f,
+            epos: vec4f,
+            mmode: f32,
+            mstr: f32,
+            estr: f32,
+            coll: f32,
+            ptype: f32,
+            lint: f32,
+            rmode: f32,
+            cmode: f32,
+            odrag: f32,
+            osize: f32,
+            psize: f32,
+            pad: f32,
+        };
+
+        @group(0) @binding(0) var<storage, read_write> particles_in: array<Particle>;
+        @group(0) @binding(1) var<storage, read_write> particles_out: array<Particle>;
+        @group(0) @binding(2) var<uniform> params: Params;
+
+        @group(1) @binding(0) var<storage, read_write> grid_counts: array<atomic<u32>>;
+        @group(1) @binding(1) var<storage, read_write> grid_cells: array<u32>;
+
+        const MAX_PER_CELL = 64u;
+
+        fn quat_mul(q1: vec4f, q2: vec4f) -> vec4f {
+            return vec4f(
+                q1.w * q2.xyz + q2.w * q1.xyz + cross(q1.xyz, q2.xyz),
+                q1.w * q2.w - dot(q1.xyz, q2.xyz)
+            );
+        }
+
+        fn quat_conj(q: vec4f) -> vec4f {
+            return vec4f(-q.xyz, q.w);
+        }
+
+        fn rotate_vec(v: vec3f, q: vec4f) -> vec3f {
+            return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
+        }
+
+        fn get_spatial_coords(pos: vec3f) -> vec3i {
+            let diam = params.rad * params.psize * 2.0;
+            let h = max(diam * 1.05, 0.001); 
+            return vec3i(floor(pos / h));
+        }
+
+        fn hash_coords(coords: vec3i) -> u32 {
+            let cx = u32(coords.x + 100000);
+            let cy = u32(coords.y + 100000);
+            let cz = u32(coords.z + 100000);
+            let hash = (cx * 73856093u) ^ (cy * 19349663u) ^ (cz * 83492791u);
+            return hash % u32(params.grid);
+        }
+
+        @compute @workgroup_size(64)
+        fn integrate(@builtin(global_invocation_id) id: vec3u) {
+            let i = id.x;
+            if (f32(i) >= params.count) { return; }
+            var p = particles_in[i];
+            
+            let mode = i32(params.mmode);
+
+            // Calculate ray interactions first:
+            var interaction_radius = 0.25;
+            if (i == 0u) { interaction_radius = params.rad * params.osize * 1.5; }
+            
+            let ray_origin = params.epos.xyz;
+            let ray_dir = params.vdir.xyz;
+            let to_particle = p.pos.xyz - ray_origin;
+            let proj = dot(to_particle, ray_dir);
+            let dist_sq = dot(to_particle, to_particle) - proj * proj;
+            let d = sqrt(max(dist_sq, 0.0));
+            
+            p.prev_pos = p.pos;
+            p.prev_ori = p.ori;
+            
+            p.vel.y -= params.grav * params.dt;
+
+            // Orientation Integration
+            var w = p.ang_vel.xyz;
+            
+            // Drive angular velocity based on UI mode
+            if (params.rmode == 1.0) { // SPIN
+                w += vec3f(0.5, 4.0, 0.2) * params.dt;
+            } else if (params.rmode == 2.0) { // RANDOM
+                let r = dot(p.pos.xyz, vec3f(f32(i) * 0.12, params.time * 0.01, 45.164));
+                w += vec3f(sin(r), cos(r * 1.1), sin(r * 0.7)) * 20.0 * params.dt;
+            } else if (params.rmode == 3.0) { // RAGDOLL
+                let speed_sq = dot(p.vel.xyz, p.vel.xyz);
+                if (speed_sq > 0.1) {
+                    let travel_dir = normalize(p.vel.xyz);
+                    let local_up = rotate_vec(vec3f(0.0, 1.0, 0.0), p.ori);
+                    let aero_torque = cross(local_up, travel_dir) * speed_sq * 0.05;
+                    w += aero_torque * params.dt;
+                }
+            }
+
+            let w_len = length(w);
+            if (w_len > 1e-6) {
+                let axis = w / w_len;
+                let angle = w_len * params.dt;
+                let dq = vec4f(axis * sin(angle * 0.5), cos(angle * 0.5));
+                p.ori = quat_mul(dq, p.ori);
+                p.ori = normalize(p.ori);
+            }
+
+            // Central Object (Index 0) overrides
+            if (i == 0u) {
+                p.vel.y += params.grav * params.dt; // Cancel global gravity
+                if (mode == 3 && params.mstr > 0.0) {
+                    // Object Drag overrides
+                    let target_pos = params.mpos.xyz;
+                    let diff = target_pos - p.pos.xyz;
+                    p.vel += vec4f(diff * 60.0 * params.mstr * params.dt, 0.0);
+                    
+                    // Add some spin when dragging the main object
+                    p.ang_vel += vec4f(0.1, 0.2, 0.1, 0.0) * params.mstr;
+                } else {
+                    // Natural slow down if not held
+                    p.vel *= 0.95;
+                    p.ang_vel *= 0.95;
+                }
+            }
+            
+            // Other modes
+            if (d < interaction_radius && proj > 0.0 && params.mstr > 0.0 && mode != 3 && i != 0u) {
+                let strength = (1.0 - d / interaction_radius) * 115.0 * params.mstr;
+                let soft_dir = normalize(to_particle - ray_dir * proj + 1e-6);
+                
+                if (mode == 0) { // Warp (Repel)
+                   p.vel += vec4f(soft_dir * strength * params.dt, 0.0);
+                   p.ang_vel += vec4f(cross(soft_dir, vec3f(0,1,0)) * strength * 0.2, 0.0);
+                } else if (mode == 1) { // Singularity (Attract)
+                   p.vel -= vec4f(soft_dir * strength * params.dt, 0.0);
+                   p.ang_vel -= vec4f(cross(soft_dir, vec3f(0,1,0)) * strength * 0.2, 0.0);
+                } else if (mode == 2) { // Swirl (Vortex)
+                   let swirl = cross(ray_dir, soft_dir);
+                    p.vel += vec4f(normalize(swirl + 1e-6) * strength * 0.8 * params.dt, 0.0);
+                    p.ang_vel += vec4f(swirl * strength * 0.5, 0.0);
+                }
+            }
+
+            // Fluid/Thermal Agitation (Entropy repurposed)
+            if (params.estr > 0.0) {
+                let seed = dot(p.pos.xyz, vec3f(12.9898, 78.233, params.time * 0.01));
+                let noise = vec3f(
+                    fract(sin(seed) * 43758.5453), 
+                    fract(cos(seed * 1.1) * 31415.9265), 
+                    fract(sin(seed * 0.7) * 12345.6789)
+                ) - 0.5;
+                p.vel += vec4f(noise * params.estr * 8.0, 0.0) * params.dt;
+                p.ang_vel += vec4f(noise * params.estr * 20.0, 0.0) * params.dt;
+            }
+
+            p.pos += p.vel * params.dt;
+            particles_out[i] = p;
+        }
+
+        @compute @workgroup_size(64)
+        fn clear_grid(@builtin(global_invocation_id) id: vec3u) {
+            let i = id.x;
+            let cells = u32(params.grid);
+            if (i >= cells) { return; }
+            atomicStore(&grid_counts[i], 0u);
+        }
+
+        @compute @workgroup_size(64)
+        fn update_grid(@builtin(global_invocation_id) id: vec3u) {
+            let i = id.x;
+            if (f32(i) >= params.count) { return; }
+            let coords = get_spatial_coords(particles_out[i].pos.xyz);
+            let cell_idx = hash_coords(coords);
+            let local_idx = atomicAdd(&grid_counts[cell_idx], 1u);
+            if (local_idx < MAX_PER_CELL) {
+                grid_cells[cell_idx * MAX_PER_CELL + local_idx] = i;
+            }
+        }
+
+        @compute @workgroup_size(64)
+        fn solve_constraints(@builtin(global_invocation_id) id: vec3u) {
+            let i = id.x;
+            if (f32(i) >= params.count) { return; }
+            if (i == 0u) { return; } 
+            
+            var p_i = particles_out[i];
+            let r_i = params.rad * params.psize;
+            
+            // 1. Spatial Grid Resolve (Internal Particle-Particle)
+            if (params.coll > 0.5) {
+                let coords = get_spatial_coords(p_i.pos.xyz);
+                let diam = r_i * 2.0; 
+                let diam_sq = diam * diam;
+
+                for (var x = -1; x <= 1; x++) {
+                    for (var y = -1; y <= 1; y++) {
+                        for (var z = -1; z <= 1; z++) {
+                            let n_cell = hash_coords(coords + vec3i(x, y, z));
+                            let count = min(atomicLoad(&grid_counts[n_cell]), MAX_PER_CELL);
+                            for (var j_idx = 0u; j_idx < count; j_idx++) {
+                                let j = grid_cells[n_cell * MAX_PER_CELL + j_idx];
+                                if (i == j || j == 0u) { continue; }
+                                
+                                // PERFORMANCE CRITICAL: Only load the precise position vector, avoiding a 128-byte struct copy
+                                let pos_j = particles_out[j].pos.xyz;
+                                var diff = p_i.pos.xyz - pos_j;
+                                var diam_used = diam;
+                                var contact_i_offset = vec3f(0.0);
+
+                                if (params.ptype == 1.0) { // Capsule precision
+                                    let up_i = rotate_vec(vec3f(0.0, 1.0, 0.0), p_i.ori);
+                                    let up_j = rotate_vec(vec3f(0.0, 1.0, 0.0), particles_out[j].ori);
+                                    let h_i = 0.4 * r_i;
+                                    let h_j = 0.4 * params.rad * select(params.psize, params.osize, j == 0u);
+                                    
+                                    let p1 = p_i.pos.xyz - up_i * h_i;
+                                    let d1 = up_i * (2.0 * h_i);
+                                    let p2 = pos_j - up_j * h_j;
+                                    let d2_vec = up_j * (2.0 * h_j);
+                                    
+                                    let r_vec = p1 - p2;
+                                    let a = dot(d1, d1);
+                                    let e = dot(d2_vec, d2_vec);
+                                    let f = dot(d2_vec, r_vec);
+                                    
+                                    var s = 0.0;
+                                    var t = 0.0;
+                                    if (a <= 1e-6 && e <= 1e-6) {
+                                        s = 0.0; t = 0.0;
+                                    } else if (a <= 1e-6) {
+                                        s = 0.0; t = clamp(f / e, 0.0, 1.0);
+                                    } else {
+                                        let c = dot(d1, r_vec);
+                                        if (e <= 1e-6) {
+                                            t = 0.0; s = clamp(-c / a, 0.0, 1.0);
+                                        } else {
+                                            let b = dot(d1, d2_vec);
+                                            let denom = a * e - b * b;
+                                            if (denom != 0.0) { s = clamp((b * f - c * e) / denom, 0.0, 1.0); }
+                                            t = (b * s + f) / e;
+                                            if (t < 0.0) {
+                                                t = 0.0; s = clamp(-c / a, 0.0, 1.0);
+                                            } else if (t > 1.0) {
+                                                t = 1.0; s = clamp((b - c) / a, 0.0, 1.0);
+                                            }
+                                        }
+                                    }
+                                    
+                                    let contact_i = p1 + s * d1;
+                                    let contact_j = p2 + t * d2_vec;
+                                    diff = contact_i - contact_j;
+                                    contact_i_offset = contact_i - p_i.pos.xyz;
+                                    diam_used = 1.2 * r_i; // 0.6 + 0.6 times scale
+                                }
+
+                                let d2 = dot(diff, diff);
+                                let diam_sq_used = diam_used * diam_used;
+                                
+                                if (d2 < diam_sq_used && d2 > 0.0) {
+                                    let dist = sqrt(max(d2, 1e-9));
+                                    let overlap = (diam_used - dist);
+                                    var corr = overlap * 0.5 * (diff / dist);
+                                    
+                                    var factor = 0.44; 
+                                    if (params.coll == 2.0) { factor = 0.25; } 
+                                    if (params.coll == 3.0) { factor = 0.35; } 
+                                    
+                                    p_i.pos += vec4f(corr * factor, 0.0);
+                                    
+                                    var contact_r = normalize(pos_j - p_i.pos.xyz) * r_i;
+                                    if (params.ptype == 1.0) {
+                                        contact_r = contact_i_offset - corr;
+                                    }
+                                    let torque = cross(contact_r, corr);
+                                    let inertia = 0.4 * r_i * r_i; 
+                                    let d_theta = torque / (inertia + 1e-4);
+                                    
+                                    let dq = vec4f(d_theta * factor * 0.2, 0.0); 
+                                    p_i.ori = normalize(p_i.ori + vec4f(
+                                        dq.w * p_i.ori.x + dq.x * p_i.ori.w + dq.y * p_i.ori.z - dq.z * p_i.ori.y,
+                                        dq.w * p_i.ori.y - dq.x * p_i.ori.z + dq.y * p_i.ori.w + dq.z * p_i.ori.x,
+                                        dq.w * p_i.ori.z + dq.x * p_i.ori.y - dq.y * p_i.ori.x + dq.z * p_i.ori.w,
+                                        dq.w * p_i.ori.w - dq.x * p_i.ori.x - dq.y * p_i.ori.y - dq.z * p_i.ori.z
+                                    ));
+                                    
+                                    if (params.coll == 3.0 && dist > diam_used * 0.95 && dist < diam_used * 1.4) {
+                                        p_i.pos -= vec4f(corr * 0.15, 0.0);
+                                    }
+
+                                    if (dist < 1e-4) {
+                                        let seed = dot(p_i.pos.xyz, vec3f(f32(i), f32(j), params.time));
+                                        let jitter = vec3f(fract(sin(seed)*437.5), fract(cos(seed*1.1)*314.1), fract(sin(seed*0.7)*123.4)) - 0.5;
+                                        p_i.pos += vec4f(normalize(jitter + 1e-6) * diam_used * 0.1, 0.0);
+                                    }
+
+                                    if (params.estr > 0.03) {
+                                        let seed = dot(p_i.pos.xyz, vec3f(f32(i), f32(j), params.time));
+                                        let noise = vec3f(fract(sin(seed)*43.7), fract(cos(seed*1.1)*31.4), fract(sin(seed*0.7)*12.3)) - 0.5;
+                                        p_i.pos += vec4f(noise * diam_used * 0.15 * params.estr, 0.0);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Direct collision with Big Object (Physically accurate geometry)
+            // Final correction ensures particles don't clip into the static/central hull
+            {
+                let p_0 = particles_out[0];
+                let obj_type = u32(params.ptype);
+                let r_0 = params.rad * params.osize;
+                let p_rad = r_i; 
+                
+                let rel_pos = p_i.pos.xyz - p_0.pos.xyz;
+                let local_pos = rotate_vec(rel_pos, quat_conj(p_0.ori));
+                
+                var depth = -1.0;
+                var normal = vec3f(0, 1, 0);
+
+                if (obj_type >= 2u) { // Polyhedral shapes (2:Cube, 3:Tetra, 4:Octa, 5:Dodeca, 6:Icosa)
+                    var face_dist = -1e6;
+                    var face_normal = vec3f(0, 1, 0);
+                    var count = 0u;
+                    var scale_f = r_0; 
+                    
+                    if (obj_type == 2u) { count = 3u; scale_f = r_0; } // Cube
+                    else if (obj_type == 3u) { count = 4u; scale_f = r_0 * 1.732; } // Tetra
+                    else if (obj_type == 4u) { count = 4u; scale_f = r_0 * 0.577; } // Octa
+                    else if (obj_type == 5u) { count = 6u; scale_f = r_0 * 0.784; } // Dodeca
+                    else if (obj_type == 6u) { count = 10u; scale_f = r_0 * 0.795; } // Icosa
+                    
+                    let phi = 1.61803398875;
+                    let inv_phi = 0.61803398875;
+                    
+                    for (var f = 0u; f < count; f++) {
+                        var n = vec3f(0);
+                        if (obj_type == 2u) { // Cube
+                            if (f == 0u) { n = vec3f(1,0,0); } else if (f == 1u) { n = vec3f(0,1,0); } else { n = vec3f(0,0,1); }
+                        } else if (obj_type == 3u) { // Tetra
+                            let tn = array<vec3f, 4>(vec3f(1,1,1), vec3f(1,-1,-1), vec3f(-1,1,-1), vec3f(-1,-1,1));
+                            n = normalize(tn[f]);
+                        } else if (obj_type == 4u) { // Octa
+                            n = normalize(vec3f(select(1.0, -1.0, (f & 1u) != 0u), select(1.0, -1.0, (f & 2u) != 0u), 1.0));
+                        } else if (obj_type == 5u) { // Dodeca
+                            let ddn = array<vec3f, 6>(vec3f(0, 1, phi), vec3f(0, 1, -phi), vec3f(1, phi, 0), vec3f(1, -phi, 0), vec3f(phi, 0, 1), vec3f(phi, 0, -1));
+                            n = normalize(ddn[f]);
+                        } else { // Icosa
+                             let icn = array<vec3f, 10>(vec3f(1, 1, 1), vec3f(1, 1, -1), vec3f(1, -1, 1), vec3f(1, -1, -1), vec3f(0, inv_phi, phi), vec3f(0, inv_phi, -phi), vec3f(inv_phi, phi, 0), vec3f(inv_phi, -phi, 0), vec3f(phi, 0, inv_phi), vec3f(phi, 0, -inv_phi));
+                             n = normalize(icn[f]);
+                        }
+                        
+                        let dot_p = dot(local_pos, n);
+                        let d_f = select(abs(dot_p) - scale_f, dot_p - scale_f, obj_type == 3u);
+                        if (d_f > face_dist) {
+                            face_dist = d_f;
+                            face_normal = n * select(sign(dot_p), 1.0, obj_type == 3u);
+                        }
+                    }
+                    if (face_dist < p_rad) {
+                        normal = face_normal;
+                        depth = p_rad - face_dist;
+                    }
+                } else if (obj_type == 1u) { // Capsule
+                    let h = 0.4 * r_0;
+                    let ba = vec3f(0, h * 2.0, 0);
+                    let pa = local_pos - vec3f(0, -h, 0);
+                    let h_val = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+                    let d_vec = pa - ba * h_val;
+                    let d = length(d_vec);
+                    let cap_rad = r_0 * 0.6; 
+                    if (d < cap_rad + p_rad) {
+                        normal = d_vec / (d + 1e-9);
+                        depth = (cap_rad + p_rad) - d;
+                    }
+                } else { // Sphere (Type 0)
+                    let d = length(local_pos);
+                    if (d < r_0 + p_rad) {
+                        normal = local_pos / (d + 1e-9);
+                        depth = (r_0 + p_rad) - d;
+                    }
+                }
+
+                if (depth > 0.0) {
+                    let world_n = rotate_vec(normal, p_0.ori);
+                    p_i.pos += vec4f(world_n * depth, 0.0);
+                    
+                    let contact_r = -world_n * r_i;
+                    let impulse = world_n * depth * 0.5;
+                    let torque = cross(contact_r, impulse);
+                    let inertia = 0.4 * r_i * r_i;
+                    let d_theta = torque / (inertia + 1e-4);
+                    let dq = vec4f(d_theta * 0.5, 0.0);
+                    p_i.ori = normalize(p_i.ori + vec4f(
+                        dq.w * p_i.ori.x + dq.x * p_i.ori.w + dq.y * p_i.ori.z - dq.z * p_i.ori.y,
+                        dq.w * p_i.ori.y - dq.x * p_i.ori.z + dq.y * p_i.ori.w + dq.z * p_i.ori.x,
+                        dq.w * p_i.ori.z + dq.x * p_i.ori.y - dq.y * p_i.ori.x + dq.z * p_i.ori.w,
+                        dq.w * p_i.ori.w - dq.x * p_i.ori.x - dq.y * p_i.ori.y - dq.z * p_i.ori.z
+                    ));
+                }
+            }
+
+            particles_out[i] = p_i;
+        }
+
+        @compute @workgroup_size(64)
+        fn finalize(@builtin(global_invocation_id) id: vec3u) {
+            let i = id.x;
+            if (f32(i) >= params.count) { return; }
+            var p = particles_out[i];
+            
+            let r_i = params.rad * select(params.psize, params.osize, i == 0u);
+            let b = params.bounds - r_i;
+            
+            // Boundary constraints and surface interaction (inducing torque)
+            let wall_b = params.bounds - r_i;
+            if (p.pos.x >  wall_b) { p.pos.x = wall_b; p.vel.x = min(p.vel.x, 0.0); }
+            if (p.pos.x < -wall_b) { p.pos.x = -wall_b; p.vel.x = max(p.vel.x, 0.0); }
+            if (p.pos.z >  wall_b) { p.pos.z = wall_b; p.vel.z = min(p.vel.z, 0.0); }
+            if (p.pos.z < -wall_b) { p.pos.z = -wall_b; p.vel.z = max(p.vel.z, 0.0); }
+            if (p.pos.y >  wall_b) { p.pos.y = wall_b; p.vel.y = min(p.vel.y, 0.0); }
+
+            // Ground interaction
+            if (p.pos.y < -wall_b) { 
+                p.pos.y = -wall_b; 
+                p.vel.y = max(p.vel.y, 0.0);
+                
+                // Induce torque from ground friction
+                let v = (p.pos.xyz - p.prev_pos.xyz) / params.dt;
+                let vt = vec3f(v.x, 0, v.z);
+                if (length(vt) > 0.01) {
+                    let friction = 0.4;
+                    // Rotation axis is perpendicular to motion and normal [0, 1, 0]
+                    let rot_axis = normalize(cross(vec3f(0, 1, 0), vt));
+                    let torque_mag = length(vt) * friction * 5.0;
+                    
+                    // Simple PBD angular impulse: change orientation directly
+                    let dq = vec4f(rot_axis * sin(torque_mag * params.dt), cos(torque_mag * params.dt));
+                    p.ori = quat_mul(dq, p.ori);
+                    p.ori = normalize(p.ori);
+                }
+            }
+
+            let v_pre_damp = (p.pos - p.prev_pos) / params.dt;
+            
+            // Velocity Update
+            let speed = length(v_pre_damp);
+            let max_speed = 30.0; // Stabilize high-energy states
+            p.vel = v_pre_damp * min(1.0, max_speed / (speed + 1e-6));
+            
+            // Angular Velocity Update from Integrated Orientation
+            // w = 2 * imag(dq) / dt where dq = p.ori * conj(p.prev_ori)
+            let diff_q = quat_mul(p.ori, quat_conj(p.prev_ori));
+            p.ang_vel = vec4f(2.0 * diff_q.xyz / params.dt, 0.0);
+            
+            // Damping (dt-aware to maintain consistency across substepping)
+            let base_damping = select(0.001, 0.015, abs(params.grav) > 0.1);
+            let d_factor = 1.0 - (base_damping * (params.dt / 0.008));
+            p.vel *= d_factor;
+            p.ang_vel *= d_factor * 0.98; // Slightly more angular damping
+            
+            particles_out[i] = p;
+        }
+        `;
+
+      const RENDER_WGSL = `
+        struct VertexOutput {
+            @builtin(position) pos: vec4f,
+            @location(0) color: vec4f,
+            @location(1) normal: vec3f,
+            @location(2) world_pos: vec3f,
+            @location(3) uv: vec2f,
+            @location(4) center: vec3f,
+            @location(5) is_center_obj: f32,
+            @location(6) @interpolate(flat) i_idx: u32,
+            @location(7) @interpolate(flat) cap_a: vec3f,
+            @location(8) @interpolate(flat) cap_b: vec3f,
+        };
+        struct Scene {
+            vp: mat4x4f,
+            eye_pos: vec4f,
+            time: f32,
+            padding: vec3f,
+        };
+        struct Params {
+            dt: f32, grav: f32, rest: f32, rad: f32, count: f32, grid: f32, bounds: f32, time: f32,
+            mpos: vec4f, vdir: vec4f, epos: vec4f,
+            mmode: f32, mstr: f32, estr: f32, coll: f32,
+            ptype: f32, lint: f32, rmode: f32, cmode: f32,
+            odrag: f32, osize: f32, psize: f32, pad: f32
+        };
+        struct Particle { p: vec4f, v: vec4f, pp: vec4f, q: vec4f, w: vec4f, pq: vec4f, c: vec4f, a: vec4f };
+
+        @group(0) @binding(0) var<uniform> scene: Scene;
+        @group(0) @binding(1) var<storage, read> particles: array<Particle>;
+        @group(0) @binding(2) var<uniform> params: Params;
+
+        fn quat_conj(q: vec4f) -> vec4f {
+            return vec4f(-q.xyz, q.w);
+        }
+
+        fn rotate_vec(v: vec3f, q: vec4f) -> vec3f {
+            return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
+        }
+
+        @vertex
+        fn vs( @builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32 ) -> VertexOutput {
+            // Geometries: 0: Sphere, 1: Capsule, 2: Cube, 3: Tetra, 4: Octa, 5: Dodeca, 6: Icosa
+            var out: VertexOutput;
+            let p_data = particles[ii];
+            let p_type = u32(params.ptype);
+            
+            // PERFORMANCE FIX: Analytical imposters (0, 1) only need 36 or 6 vertices.
+            // Other shapes use standard vertex counts.
+            if (p_type == 0u && vi >= 36u) { out.pos = vec4f(0.0); return out; } // Sphere
+            if (p_type == 1u && vi >= 6u)  { out.pos = vec4f(0.0); return out; } // Capsule
+            if (p_type == 2u && vi >= 36u) { out.pos = vec4f(0.0); return out; } // Cube
+            if (p_type == 3u && vi >= 12u) { out.pos = vec4f(0.0); return out; } // Tetra
+            if (p_type == 4u && vi >= 24u) { out.pos = vec4f(0.0); return out; } // Octa
+            if (p_type == 5u && vi >= 108u) { out.pos = vec4f(0.0); return out; } // Dodeca
+            if (p_type == 6u && vi >= 60u) { out.pos = vec4f(0.0); return out; } // Icosa
+
+            let scale = params.rad * select(params.psize, params.osize, ii == 0u);
+            var local_pos = vec3f(0.0);
+            var normal = vec3f(0, 1, 0);
+            var qpos = vec2f(0.0);
+            var world = vec3f(0.0);
+
+            if (p_type == 3u) { // Tetra
+                let verts = array<vec3f, 4>(vec3f(1,1,1), vec3f(-1,-1,1), vec3f(-1,1,-1), vec3f(1,-1,-1));
+                let idxs = array<u32, 12>(0,1,2, 0,2,3, 0,3,1, 1,3,2);
+                let v_idx = vi % 12u;
+                local_pos = verts[idxs[v_idx]] * scale;
+                let v0 = verts[idxs[(v_idx/3u)*3u]]; let v1 = verts[idxs[(v_idx/3u)*3u+1u]]; let v2 = verts[idxs[(v_idx/3u)*3u+2u]];
+                normal = normalize(cross(v1 - v0, v2 - v0));
+                if (dot(normal, local_pos) < 0.0) { normal = -normal; }
+            } else if (p_type == 2u) { // Cube
+                let verts = array<vec3f, 8>(vec3f(-1,-1,-1), vec3f(1,-1,-1), vec3f(1,1,-1), vec3f(-1,1,-1), vec3f(-1,-1,1), vec3f(1,-1,1), vec3f(1,1,1), vec3f(-1,1,1));
+                let idxs = array<u32, 36>(0,2,1, 0,3,2, 4,5,6, 4,6,7, 0,1,5, 0,5,4, 1,2,6, 1,6,5, 2,3,7, 2,7,6, 3,0,4, 3,4,7);
+                let v_idx = vi % 36u;
+                local_pos = verts[idxs[v_idx]] * scale;
+                let v0 = verts[idxs[(v_idx/3u)*3u]]; let v1 = verts[idxs[(v_idx/3u)*3u+1u]]; let v2 = verts[idxs[(v_idx/3u)*3u+2u]];
+                normal = normalize(cross(v1 - v0, v2 - v0));
+                if (dot(normal, local_pos) < 0.0) { normal = -normal; }
+            } else if (p_type == 4u) { // Octa
+                let verts = array<vec3f, 6>(vec3f(0,1,0), vec3f(0,-1,0), vec3f(1,0,0), vec3f(-1,0,0), vec3f(0,0,1), vec3f(0,0,-1));
+                let idxs = array<u32, 24>(0,2,4, 0,4,3, 0,3,5, 0,5,2, 1,4,2, 1,3,4, 1,5,3, 1,2,5);
+                let v_idx = vi % 24u;
+                local_pos = verts[idxs[v_idx]] * scale;
+                let v0 = verts[idxs[(v_idx/3u)*3u]]; let v1 = verts[idxs[(v_idx/3u)*3u+1u]]; let v2 = verts[idxs[(v_idx/3u)*3u+2u]];
+                normal = normalize(cross(v1 - v0, v2 - v0));
+                if (dot(normal, local_pos) < 0.0) { normal = -normal; }
+            } else if (p_type == 6u) { // Icosa
+                let t = 1.61803398875;
+                let verts = array<vec3f, 12>(
+                    normalize(vec3f(-1, t, 0)), normalize(vec3f(1, t, 0)), normalize(vec3f(-1, -t, 0)), normalize(vec3f(1, -t, 0)),
+                    normalize(vec3f(0, -1, t)), normalize(vec3f(0, 1, t)), normalize(vec3f(0, -1, -t)), normalize(vec3f(0, 1, -t)),
+                    normalize(vec3f(t, 0, -1)), normalize(vec3f(t, 0, 1)), normalize(vec3f(-t, 0, -1)), normalize(vec3f(-t, 0, 1))
+                );
+                let idxs = array<u32, 60>(
+                    0,11,5, 0,5,1, 0,1,7, 0,7,10, 0,10,11, 1,5,9, 5,11,4, 11,10,2, 10,7,6, 7,1,8,
+                    3,9,4, 3,4,2, 3,2,6, 3,6,8, 3,8,9, 4,9,5, 2,4,11, 6,2,10, 8,6,7, 9,8,1
+                );
+                let v_idx = vi % 60u;
+                local_pos = verts[idxs[v_idx]] * scale;
+                let v0 = verts[idxs[(v_idx/3u)*3u]]; let v1 = verts[idxs[(v_idx/3u)*3u+1u]]; let v2 = verts[idxs[(v_idx/3u)*3u+2u]];
+                normal = normalize(cross(v1 - v0, v2 - v0));
+                if (dot(normal, local_pos) < 0.0) { normal = -normal; }
+            } else if (p_type == 5u) { // Dodecahedron
+                let t = 1.61803398875;
+                let inv_t = 0.61803398875;
+                let verts = array<vec3f, 20>(
+                    vec3f(1, 1, 1), vec3f(1, 1, -1), vec3f(1, -1, 1), vec3f(1, -1, -1),
+                    vec3f(-1, 1, 1), vec3f(-1, 1, -1), vec3f(-1, -1, 1), vec3f(-1, -1, -1),
+                    vec3f(0, inv_t, t), vec3f(0, inv_t, -t), vec3f(0, -inv_t, t), vec3f(0, -inv_t, -t),
+                    vec3f(inv_t, t, 0), vec3f(inv_t, -t, 0), vec3f(-inv_t, t, 0), vec3f(-inv_t, -t, 0),
+                    vec3f(t, 0, inv_t), vec3f(t, 0, -inv_t), vec3f(-t, 0, inv_t), vec3f(-t, 0, -inv_t)
+                );
+                // 12 pentagonal faces * 3 triangles/face = 36 triangles = 108 indices
+                let idxs = array<u32, 108>(
+                    12,1,17, 12,17,16, 12,16,0,   // Face 0
+                    12,0,8, 12,8,4, 12,4,14,      // Face 1
+                    12,14,5, 12,5,9, 12,9,1,      // Face 2
+                    8,0,16, 8,16,2, 8,2,10,       // Face 3
+                    8,10,6, 8,6,18, 8,18,4,       // Face 4
+                    16,17,3, 16,3,13, 16,13,2,    // Face 5
+                    1,9,11, 1,11,3, 1,3,17,       // Face 6
+                    4,18,19, 4,19,5, 4,5,14,      // Face 7
+                    2,13,15, 2,15,6, 2,6,10,      // Face 8
+                    5,19,7, 5,7,11, 5,11,9,       // Face 9
+                    18,6,15, 18,15,7, 18,7,19,    // Face 10
+                    3,11,7, 3,7,15, 3,15,13       // Face 11
+                );
+                let v_idx = vi % 108u;
+                local_pos = verts[idxs[v_idx]] * scale * 0.57;
+                let v0 = verts[idxs[(v_idx/3u)*3u]]; let v1 = verts[idxs[(v_idx/3u)*3u+1u]]; let v2 = verts[idxs[(v_idx/3u)*3u+2u]];
+                normal = normalize(cross(v1 - v0, v2 - v0));
+                if (dot(normal, local_pos) < 0.0) { normal = -normal; }
+            } else if (p_type == 0u) { // Sphere Imposter
+                let verts = array<vec3f, 8>(vec3f(-1,-1,-1), vec3f(1,-1,-1), vec3f(1,1,-1), vec3f(-1,1,-1), vec3f(-1,-1,1), vec3f(1,-1,1), vec3f(1,1,1), vec3f(-1,1,1));
+                let idxs = array<u32, 36>(0,2,1, 0,3,2, 4,5,6, 4,6,7, 0,1,5, 0,5,4, 1,2,6, 1,6,5, 2,3,7, 2,7,6, 3,0,4, 3,4,7);
+                let v_idx = vi % 36u;
+                let box_scale = scale * 1.15;
+                local_pos = verts[idxs[v_idx]] * box_scale;
+                normal = normalize(scene.eye_pos.xyz - p_data.p.xyz);
+                qpos = local_pos.xy / box_scale;
+            } else { // Capsule Imposter (p_type == 1u)
+                let p_data = particles[ii];
+                let h = 0.4 * scale;
+                let cap_a = p_data.p.xyz + rotate_vec(vec3f(0, -h, 0), p_data.q);
+                let cap_b = p_data.p.xyz + rotate_vec(vec3f(0, h, 0), p_data.q);
+                out.cap_a = cap_a;
+                out.cap_b = cap_b;
+                let r_cap = scale * 0.6; // UNIFIED 0.6 FACTOR
+                
+                // Expanded billboard box that tightly wraps the rotated capsule
+                let capsule_dir = normalize(cap_b - cap_a);
+                let cam_view = normalize(scene.eye_pos.xyz - p_data.p.xyz);
+                let side = normalize(cross(capsule_dir, cam_view));
+                let up_ext = normalize(cross(cam_view, side));
+                
+                let quad = array<vec2f, 6>(vec2f(-1,-1), vec2f(1,-1), vec2f(1,1), vec2f(-1,-1), vec2f(1,1), vec2f(-1,1));
+                qpos = quad[vi % 6u];
+                
+                // The billboard size depends on the projection of the capsule segment
+                world = p_data.p.xyz + (side * qpos.x * r_cap * 1.6) + (up_ext * qpos.y * (h + r_cap * 1.6));
+                normal = cam_view;
+            }
+
+            if (p_type >= 2u) {
+                local_pos = rotate_vec(local_pos, p_data.q);
+                normal = rotate_vec(normal, p_data.q);
+                world = local_pos + p_data.p.xyz;
+            } else if (p_type == 0u) {
+                world = local_pos + p_data.p.xyz;
+            }
+
+            out.pos = scene.vp * vec4f(world, 1.0);
+            out.world_pos = world;
+            out.normal = normal;
+            out.uv = qpos;
+            out.center = p_data.p.xyz;
+            out.is_center_obj = select(0.0, 1.0, ii == 0u);
+            out.i_idx = ii;
+            
+            // Color Logic
+            if (ii == 0u) {
+                 out.color = vec4f(1.0, 1.0, 0.4, 1.0);
+            } else if (params.cmode < 10.0) { // Mono
+                let t = fract(f32(ii) * 0.13 + scene.time * 0.02);
+                if (params.cmode == 0.0) { // White/Light
+                   let base = 0.8 + t * 0.15;
+                   out.color = vec4f(base, base, base, 1.0);
+                } else if (params.cmode == 1.0) { // Silver
+                   let base = 0.5 + t * 0.2;
+                   out.color = vec4f(base, base, base, 1.0);
+                } else if (params.cmode == 2.0) { // Charcoal/Dark
+                   let base = 0.2 + t * 0.15;
+                   out.color = vec4f(base, base, base, 1.0);
+                } else if (params.cmode == 3.0) { // Pure Black / Silhouette
+                   let base = 0.05 + t * 0.05;
+                   out.color = vec4f(base, base, base, 1.0);
+                } else if (params.cmode == 4.0) { // Slate
+                   let base = 0.35 + t * 0.15;
+                   out.color = vec4f(base, base*1.05, base*1.15, 1.0);
+                } else { // Bone
+                   let base = 0.85 + t * 0.1;
+                   out.color = vec4f(base, base*0.95, base*0.9, 1.0);
+                }
+            } else if (params.cmode < 20.0) { // Tones
+                let t = fract(f32(ii) * 0.21 + scene.time * 0.04);
+                if (params.cmode == 10.0) { // Cool (Blues/Teals)
+                   out.color = vec4f(0.2 + t*0.2, 0.5 + t*0.3, 0.8 + t*0.2, 1.0);
+                } else if (params.cmode == 11.0) { // Warm (Oranges/Reds)
+                   out.color = vec4f(0.8 + t*0.2, 0.4 + t*0.3, 0.2 + t*0.1, 1.0);
+                } else if (params.cmode == 12.0) { // Earth (Greens/Browns)
+                   out.color = vec4f(0.4 + t*0.2, 0.6 + t*0.1, 0.3 + t*0.2, 1.0);
+                } else if (params.cmode == 13.0) { // Ocean (Deep Blues)
+                   out.color = vec4f(0.1 + t*0.1, 0.3 + t*0.2, 0.6 + t*0.3, 1.0);
+                } else if (params.cmode == 14.0) { // Sage (Soft greens)
+                   out.color = vec4f(0.5 + t*0.1, 0.7 + t*0.1, 0.5 + t*0.1, 1.0);
+                } else if (params.cmode == 15.0) { // Dust 
+                   out.color = vec4f(0.7 + t*0.1, 0.6 + t*0.1, 0.5 + t*0.1, 1.0);
+                } else if (params.cmode == 16.0) { // Rose
+                   out.color = vec4f(0.8 + t*0.1, 0.4 + t*0.1, 0.5 + t*0.2, 1.0);
+                } else { // Sand
+                   out.color = vec4f(0.9 + t*0.1, 0.8 + t*0.1, 0.5 + t*0.1, 1.0);
+                }
+            } else { // Themes
+                if (params.cmode == 20.0) { // Chromatic
+                    let h = (f32(ii) / params.count) * 6.28 + scene.time * 0.1;
+                    out.color = vec4f(sin(h)*0.5+0.5, sin(h+2.1)*0.5+0.5, sin(h+4.2)*0.5+0.5, 1.0);
+                } else if (params.cmode == 21.0) { // Neon / Pastel
+                    let idx = ii % 4u;
+                    if (idx == 0u) { out.color = vec4f(0.0, 1.0, 0.8, 1.0); }
+                    else if (idx == 1u) { out.color = vec4f(1.0, 0.2, 0.6, 1.0); }
+                    else if (idx == 2u) { out.color = vec4f(0.6, 0.2, 1.0, 1.0); }
+                    else { out.color = vec4f(1.0, 0.9, 0.4, 1.0); }
+                } else if (params.cmode == 22.0) { // Magma / Lava
+                    let t = fract(f32(ii) * 0.05 + scene.time * 0.1);
+                    out.color = vec4f(1.0, 0.2 + t * 0.6, 0.0, 1.0);
+                } else if (params.cmode == 23.0) { // Ice
+                    let t = fract(f32(ii) * 0.1 + scene.time * 0.05);
+                    out.color = vec4f(0.2, 0.6 + t * 0.3, 1.0, 1.0);
+                } else if (params.cmode == 24.0) { // Cyberpunk
+                    let t = fract(f32(ii) * 0.15 + scene.time * 0.1);
+                    out.color = select(vec4f(1.0, 0.0, 0.3, 1.0), vec4f(0.0, 1.0, 0.9, 1.0), t > 0.5);
+                } else { // Matrix
+                    let t = fract(f32(ii) * 0.08 + scene.time * 0.1);
+                    out.color = vec4f(0.0, 0.4 + t * 0.6, 0.1, 1.0);
+                }
+            }
+            
+            return out;
+        }
+
+        struct FragmentOutput {
+            @location(0) color: vec4f,
+            @builtin(frag_depth) depth: f32,
+        };
+
+        @fragment
+        fn fs(in: VertexOutput) -> FragmentOutput {
+            var n = normalize(in.normal);
+            let p_type = u32(params.ptype);
+            var out: FragmentOutput;
+            out.depth = in.pos.z;
+            
+            var actual_world_pos = in.world_pos;
+            
+            // Analytical Geometry Raycasting
+            if (p_type == 0u || p_type == 1u) { // Sphere or Capsule
+                let R_hit = params.rad * select(params.psize, params.osize, in.is_center_obj > 0.5); 
+                
+                if (p_type == 0u) {
+                    // Perfect mathematical sphere intersection
+                    let ray_origin = scene.eye_pos.xyz;
+                    let ray_dir = normalize(actual_world_pos - scene.eye_pos.xyz);
+                    let sphere_center = in.center;
+                    
+                    let oc = ray_origin - sphere_center;
+                    let b = dot(oc, ray_dir);
+                    let c = dot(oc, oc) - R_hit * R_hit;
+                    let discriminant = b * b - c;
+                    
+                    if (discriminant < 0.0) { discard; }
+                    
+                    var t = -b - sqrt(discriminant); // Nearest intersection
+                    if (t < 0.0) { t = -b + sqrt(discriminant); }
+                    if (t < 1e-4) { discard; }
+                    
+                    let hit_pos = ray_origin + ray_dir * t;
+                    actual_world_pos = hit_pos;
+                    n = normalize(hit_pos - sphere_center);
+                    
+                    let clip_pos = scene.vp * vec4f(hit_pos, 1.0);
+                    out.depth = clamp(clip_pos.z / clip_pos.w, 0.0, 1.0);
+                } else {
+                    // Optimized CAPSULE Raytracing (Using pre-computed world-space endpoints)
+                    let R_cap = params.rad * select(params.psize, params.osize, in.is_center_obj > 0.5) * 0.6;
+                    let ray_origin = scene.eye_pos.xyz;
+                    let ray_dir = normalize(in.world_pos - ray_origin);
+                    
+                    let ba = in.cap_b - in.cap_a;
+                    let oa = ray_origin - in.cap_a;
+                    
+                    let baba = dot(ba, ba);
+                    let bard = dot(ba, ray_dir);
+                    let baoa = dot(ba, oa);
+                    let rdoa = dot(ray_dir, oa);
+                    let oaoa = dot(oa, oa);
+                    
+                    let a = baba - bard * bard;
+                    let b_q = baba * rdoa - baoa * bard;
+                    let c_q = baba * oaoa - baoa * baoa - R_cap * R_cap * baba;
+                    let h_q = b_q * b_q - a * c_q;
+                    
+                    if (h_q < 0.0) { discard; }
+                    
+                    var t = (-b_q - sqrt(h_q)) / a;
+                    let y = baoa + t * bard;
+                    
+                    if (y > 0.0 && y < baba) {
+                        // Body hit
+                        let hit_pos = ray_origin + ray_dir * t;
+                        actual_world_pos = hit_pos;
+                        n = (oa + t * ray_dir - ba * y / baba) / R_cap;
+                        let clip_pos = scene.vp * vec4f(hit_pos, 1.0);
+                        out.depth = clamp(clip_pos.z/clip_pos.w, 0.0, 1.0);
+                    } else {
+                        // Sphere cap hits
+                        let oc = select(oa, oa - ba, y >= baba);
+                        let b_s = dot(ray_dir, oc);
+                        let c_s = dot(oc, oc) - R_cap * R_cap;
+                        let h_s = b_s * b_s - c_s;
+                        if (h_s < 0.0) { discard; }
+                        t = -b_s - sqrt(h_s);
+                        let hit_p = ray_origin + ray_dir * t;
+                        actual_world_pos = hit_p;
+                        n = (hit_p - select(in.cap_a, in.cap_b, y >= baba)) / R_cap;
+                        let clip_pos = scene.vp * vec4f(hit_p, 1.0);
+                        out.depth = clamp(clip_pos.z/clip_pos.w, 0.0, 1.0);
+                    }
+                }
+            }
+
+            // Unified Lighting Logic
+            let light_dir = normalize(vec3f(sin(scene.time * 0.5), 1.0, cos(scene.time * 0.5)));
+            let V = normalize(scene.eye_pos.xyz - actual_world_pos);
+            let H = normalize(light_dir + V);
+            
+            let diff = max(dot(n, light_dir), 0.0) * params.lint;
+            let ambient = 0.2 * params.lint;
+            
+            // Specular highlight for that unified "pop"
+            let spec = pow(max(dot(n, H), 0.0), 32.0) * 0.4 * params.lint;
+            
+            // Rim lighting
+            let rim = pow(1.0 - max(dot(V, n), 0.0), 3.0) * 0.25;
+            
+            let final_rgb = in.color.rgb * (diff + ambient) + rim * in.color.rgb + vec3f(spec);
+            out.color = vec4f(final_rgb, 1.0);
+            return out;
+        }
+        `;
+
+      // --- MATH UTILS (Column-Major) ---
+      const mat4 = {
+        identity: (out = new Float32Array(16)) => {
+          out.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+          return out;
+        },
+        perspective: (fovy, aspect, near, far, out = new Float32Array(16)) => {
+          const f = 1.0 / Math.tan(fovy / 2),
+            nf = 1 / (near - far);
+          out.set([
+            f / aspect, 0, 0, 0,
+            0, f, 0, 0,
+            0, 0, far * nf, -1,
+            0, 0, near * far * nf, 0,
+          ]);
+          return out;
+        },
+        multiply: (a, b, out = new Float32Array(16)) => {
+          const res = out; // Avoid modifying input if out is one of them
+          const a0 = a[0], a1 = a[1], a2 = a[2], a3 = a[3];
+          const a4 = a[4], a5 = a[5], a6 = a[6], a7 = a[7];
+          const a8 = a[8], a9 = a[9], a10 = a[10], a11 = a[11];
+          const a12 = a[12], a13 = a[13], a14 = a[14], a15 = a[15];
+
+          for (let c = 0; c < 4; c++) {
+            const b0 = b[c * 4 + 0], b1 = b[c * 4 + 1], b2 = b[c * 4 + 2], b3 = b[c * 4 + 3];
+            res[c * 4 + 0] = a0 * b0 + a4 * b1 + a8 * b2 + a12 * b3;
+            res[c * 4 + 1] = a1 * b0 + a5 * b1 + a9 * b2 + a13 * b3;
+            res[c * 4 + 2] = a2 * b0 + a6 * b1 + a10 * b2 + a14 * b3;
+            res[c * 4 + 3] = a3 * b0 + a7 * b1 + a11 * b2 + a15 * b3;
+          }
+          return res;
+        },
+        translate: (m, v, out = new Float32Array(16)) => {
+          if (out !== m) out.set(m);
+          out[12] = m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12];
+          out[13] = m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13];
+          out[14] = m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14];
+          out[15] = m[3] * v[0] + m[7] * v[1] + m[11] * v[2] + m[15];
+          return out;
+        },
+        fromRotationX: (a, out = new Float32Array(16)) => {
+          const c = Math.cos(a), s = Math.sin(a);
+          out.set([1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]);
+          return out;
+        },
+        fromRotationY: (a, out = new Float32Array(16)) => {
+          const c = Math.cos(a), s = Math.sin(a);
+          out.set([c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1]);
+          return out;
+        },
+        invert: (m, out = new Float32Array(16)) => {
+          let a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];
+          let a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];
+          let a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];
+          let a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];
+          let b00 = a00 * a11 - a01 * a10, b01 = a00 * a12 - a02 * a10, b02 = a00 * a13 - a03 * a10;
+          let b03 = a01 * a12 - a02 * a11, b04 = a01 * a13 - a03 * a11, b05 = a02 * a13 - a03 * a12;
+          let b06 = a20 * a31 - a21 * a30, b07 = a20 * a32 - a22 * a30, b08 = a20 * a33 - a23 * a30;
+          let b09 = a21 * a32 - a22 * a31, b10 = a21 * a33 - a23 * a31, b11 = a22 * a33 - a23 * a32;
+          let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+          if (!det) return null;
+          det = 1.0 / det;
+          out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
+          out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
+          out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
+          out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
+          out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
+          out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
+          out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
+          out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
+          out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
+          out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
+          out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
+          out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
+          out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det;
+          out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
+          out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det;
+          out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
+          return out;
+        },
+        multiplyVec: (m, v, out = [0, 0, 0, 0]) => {
+          const x = v[0], y = v[1], z = v[2], w = v[3];
+          out[0] = m[0] * x + m[4] * y + m[8] * z + m[12] * w;
+          out[1] = m[1] * x + m[5] * y + m[9] * z + m[13] * w;
+          out[2] = m[2] * x + m[6] * y + m[10] * z + m[14] * w;
+          out[3] = m[3] * x + m[7] * y + m[11] * z + m[15] * w;
+          return out;
+        },
+      };
+
+      // --- Physics State ---
+      let currentMaxParticles = 16384;
+      let collisionMode = 3; // Ragdoll
+      let priorityMode = 1; // 0: accuracy, 1: stability (adaptive)
+      let targetFPS = 60;
+      const TABLE_SIZE = 262144; // REPLACES GRID_RES for Spatial Hashing
+      const MAX_CELL_PARTICLES = 64;
+      const BOUNDS = 1.0;
+      const RADIUS = 0.012;
+      let gravityVal = 0.0;
+      let mouseInWorld = [0, 0, 0, 0]; // x, y, z, strength
+      let isMouseDown = false;
+      let isRightDown = false;
+      let isMidDown = false;
+      let interMode = 0; // Warp Default
+      let forceStrength = 3.0; // Sync with state
+      let entropyStr = 0.0; // Sync with state
+      let rotMode = 3; // Sync with state
+      let objDragMode = 0;
+      let isDragging = false;
+      let dragDistance = 1.0;
+      let objScale = 25.0; // Sync with CentralRad
+      let particleType = 0; // Sphere default
+      let pSize = 1.0;
+      let lightInt = 1.0;
+      let chromaticMode = 20; // Chromatic Default
+
+      let lastFrameTime = performance.now();
+      let frameCount = 0;
+      let totalFrameTime = 0;
+
+      let driftMode = 0; // 0: off, 1: left, 2: right, 3: up, 4: down
+      let driftSpeed = 0.5;
+      let zoom = 4.75;
+      let camYaw = 0;
+      let camPitch = 0.3;
+      let panX = 0;
+      let panY = 0;
+
+      window.cycleFPS = () => {
+        const targets = [60, 120, 240];
+        const idx = targets.indexOf(targetFPS);
+        targetFPS = targets[(idx + 1) % targets.length];
+        const status = document.getElementById("fps-status");
+        if (status) status.innerText = targetFPS + " FPS";
+
+        const btn = document.getElementById("btn-fps-toggle");
+        if (targetFPS > 60) btn.style.color = "var(--success)";
+        else btn.style.color = "var(--text-main)";
+      };
+
+      window.toggleTheme = () => {
+        const body = document.documentElement;
+        const current = body.getAttribute("data-theme");
+        const target = current === "light" ? "dark" : "light";
+        body.setAttribute("data-theme", target);
+        document.getElementById("theme-status").innerText =
+          target.toUpperCase();
+      };
+
+      window.toggleEnginePriority = () => {
+        priorityMode = (priorityMode + 1) % 2;
+        const status = document.getElementById("priority-status");
+        const btn = document.getElementById("btn-engine-priority");
+        if (status) status.innerText = priorityMode === 1 ? "STABILITY" : "ACCURACY";
+        if (btn) btn.classList.toggle("active", priorityMode === 0);
+      };
+
+      window.setCollision = (m) => {
+        collisionMode = m;
+        const btn = document.getElementById("btn-collision");
+        const status = document.getElementById("collision-status");
+        const labels = ["OFF", "RIGID", "SOFT", "RAGDOLL"];
+        if (status) status.innerText = labels[m];
+        
+        if (btn) {
+           btn.classList.toggle("active", m > 0);
+           if (m > 0) {
+              btn.style.background = "var(--accent)";
+              btn.style.color = "white";
+              btn.style.boxShadow = "0 4px 12px var(--accent-glow)";
+           } else {
+              btn.style.background = "";
+              btn.style.color = "";
+              btn.style.boxShadow = "";
+           }
+        }
+      };
+
+      window.toggleCollision = () => {
+        // Cycle: Ragdoll (3) -> Soft (2) -> Rigid (1) -> Off (0)
+        let next = 0;
+        if (collisionMode === 3) next = 2;
+        else if (collisionMode === 2) next = 1;
+        else if (collisionMode === 1) next = 0;
+        else next = 3;
+        setCollision(next);
+      };
+
+      const updateStatsUI = (fps, loadVal) => {
+        const fpsEl = document.getElementById("fps-val");
+        if (fpsEl) {
+          fpsEl.innerText = Math.round(fps);
+          fpsEl.style.color = fps < 24 ? "var(--error)" : (fps < 50 ? "var(--warning)" : "var(--success)");
+        }
+
+        const loadEl = document.getElementById("load-val");
+        if (loadEl) {
+          loadEl.innerText = "N/A";
+          loadEl.style.color = "var(--text-muted)";
+        }
+      };
+
+      window.setDensity = (val) => {
+        currentMaxParticles = parseInt(val);
+        document.getElementById("v-density").innerText = currentMaxParticles;
+      };
+
+      window.setEntropy = (val) => {
+        entropyStr = parseFloat(val);
+        document.getElementById("v-entropy").innerText = entropyStr.toFixed(2);
+      };
+
+      window.cycleDrift = () => {
+        driftMode = (driftMode + 1) % 5;
+        const status = document.getElementById("cam-status");
+        const btn = document.getElementById("btn-cam-lock");
+        const labels = ["OFF", "LEFT", "RIGHT", "UP", "DOWN"];
+        if (status) status.innerText = labels[driftMode];
+        if (btn) btn.classList.toggle("active", driftMode > 0);
+      };
+
+      window.setGravity = (val, id) => {
+        gravityVal = val;
+        document
+          .querySelectorAll("#physics-card .tool-btn")
+          .forEach((b) => {
+            if (b.id && b.id.startsWith("btn-grav-")) {
+              b.classList.remove("active");
+            }
+          });
+        const btn = document.getElementById(`btn-grav-${id}`);
+        if (btn) btn.classList.add("active");
+      };
+
+      window.setInterMode = (m) => {
+        // Toggle behavior: if the same mode is clicked, turn it off (mode -1)
+        if (interMode === m) {
+          interMode = -1;
+          window.setObjectDrag(false);
+        } else {
+          interMode = m;
+          window.setObjectDrag(m === 3);
+        }
+        
+        document
+          .querySelectorAll("#physics-card .btn-group-row .tool-btn")
+          .forEach((b) => b.classList.remove("active"));
+        
+        if (interMode !== -1) {
+          const btn = document.getElementById(`mode-${interMode}`);
+          if (btn) btn.classList.add("active");
+        }
+        
+        const labels = ["Warp", "Attract", "Vortex", "Collider"];
+        const vimode = document.getElementById("v-imode");
+        if (vimode) vimode.innerText = interMode === -1 ? "NONE" : labels[interMode];
+      };
+
+      window.setZoom = (v) => {
+        zoom = 8.0 - parseFloat(v) * 6.5;
+        document.getElementById("v-zoom").innerText = parseFloat(v).toFixed(2);
+      };
+
+      // Visual Config helpers
+      window.cycleGeometry = () => {
+        particleType = (particleType + 1) % 7; 
+        const names = [
+          "TRUE SPHERE",
+          "CAPSULE",
+          "CUBE",
+          "TETRAHEDRON",
+          "OCTAHEDRON",
+          "DODECAHEDRON",
+          "ICOSAHEDRON",
+        ];
+        document.getElementById("v-type").innerText = names[particleType];
+      };
+
+      window.setParticleSize = (v) => {
+        pSize = parseFloat(v);
+        document.getElementById("v-psize").innerText = v;
+      };
+      window.setLighting = (v) => {
+        lightInt = parseFloat(v);
+        document.getElementById("v-light").innerText = v;
+      };
+
+      window.cycleColors = (cat) => {
+        const monoNames = ["WHITE", "SILVER", "CHARCOAL", "BLACK", "SLATE", "BONE"];
+        const toneNames = ["COOL", "WARM", "EARTH", "OCEAN", "SAGE", "DUST", "ROSE", "SAND"];
+        const themeNames = ["CHROMATIC", "NEON", "MAGMA", "ICE", "OVERDRIVE", "MATRIX"];
+
+        // Deactivate all color buttons
+        ["col-mono", "col-tones", "col-themes"].forEach(id => {
+          document.getElementById(id).classList.remove("active");
+        });
+        document.getElementById(`col-${cat}`).classList.add("active");
+
+        if (cat === "mono") {
+          let subMode = (chromaticMode >= 0 && chromaticMode <= 5) ? (chromaticMode + 1) % 6 : 0;
+          chromaticMode = subMode;
+          document.getElementById("v-color").innerText = monoNames[subMode];
+        } else if (cat === "tones") {
+          let subMode = (chromaticMode >= 10 && chromaticMode <= 17) ? ((chromaticMode - 10) + 1) % 8 : 0;
+          chromaticMode = 10 + subMode;
+          document.getElementById("v-color").innerText = toneNames[subMode];
+        } else if (cat === "themes") {
+          let subMode = (chromaticMode >= 20 && chromaticMode <= 25) ? ((chromaticMode - 20) + 1) % 6 : 0;
+          chromaticMode = 20 + subMode;
+          document.getElementById("v-color").innerText = themeNames[subMode];
+        }
+      };
+
+      window.setForce = (val) => {
+        forceStrength = parseFloat(val);
+        document.getElementById("v-force").innerText = val;
+      };
+
+      window.setDriftSpeed = (val) => {
+        driftSpeed = parseFloat(val);
+        document.getElementById("v-drift").innerText = val;
+      };
+
+      window.setRotation = (m) => {
+        rotMode = m;
+        document
+          .querySelectorAll('[id^="rot-"]')
+          .forEach((b) => b.classList.remove("active"));
+        const btnId = document.getElementById(`rot-${m}`);
+        if(btnId) btnId.classList.add("active");
+        const vr = document.getElementById("v-rotation");
+        if (vr) vr.innerText = [
+          "OFF",
+          "SPIN",
+          "RANDOM",
+          "RAGDOLL"
+        ][m];
+      };
+      window.setObjectDrag = (active) => {
+        objDragMode = active ? 1 : 0;
+      };
+      window.setCentralRad = (val) => {
+        objScale = parseFloat(val);
+        const el1 = document.getElementById("v-rad");
+        if (el1) el1.innerText = val;
+        const el2 = document.getElementById("v-objs");
+        if (el2) el2.innerText = parseFloat(val).toFixed(1);
+        const slider = document.getElementById("osize-slider");
+        if (slider) slider.value = val;
+      };
+
+      window.setObjectSize = (v) => {
+        window.setCentralRad(v);
+      };
+
+      window.resetSettings = () => {
+        // Core Physics State - reset to stable defaults
+        gravityVal = 0;
+        setGravity(0, "zero");
+        
+        interMode = 0; // Warp
+        document.querySelectorAll("#physics-card .btn-group-row .tool-btn").forEach((b) => b.classList.remove("active"));
+        const warpBtn = document.getElementById("mode-0");
+        if (warpBtn) warpBtn.classList.add("active");
+        window.setObjectDrag(false);
+        
+        forceStrength = 3.0; 
+        const fsl = document.getElementById("force-slider"); 
+        if (fsl) {
+          fsl.value = 3.0;
+          const fv = document.getElementById("v-force");
+          if (fv) fv.innerText = "3.0";
+        }
+
+        entropyStr = 0.0; 
+        const esl = document.getElementById("entropy-slider"); 
+        if (esl) {
+          esl.value = 0.0;
+          const ev = document.getElementById("v-entropy");
+          if (ev) ev.innerText = "0.0";
+        }
+
+        // Particle Geometry Reset
+        particleType = 0; // True Sphere
+        const typeEl = document.getElementById("v-type");
+        if (typeEl) typeEl.innerText = "TRUE SPHERE";
+        
+        pSize = 1.0;
+        const pss = document.getElementById("psize-slider");
+        if (pss) pss.value = 1.0;
+        const psv = document.getElementById("v-psize");
+        if (psv) psv.innerText = "1.0";
+
+        lightInt = 1.0;
+        const ls = document.getElementById("light-slider");
+        if (ls) ls.value = 1.0;
+        const lv = document.getElementById("v-light");
+        if (lv) lv.innerText = "1.0";
+        
+        collisionMode = 1; // RIGID
+        const csLabel = document.getElementById("collision-status");
+        if (csLabel) csLabel.innerText = "RIGID";
+        const cbBtn = document.getElementById("btn-collision");
+        if (cbBtn) {
+          cbBtn.classList.add("active");
+          cbBtn.style.background = "var(--accent)";
+          cbBtn.style.color = "white";
+        }
+
+        rotMode = 3;  // RAGDOLL
+        setRotation(3);
+        
+        priorityMode = 1; // Stability (Adaptive)
+        const prs = document.getElementById("priority-status");
+        if (prs) prs.innerText = "STABILITY";
+        const prb = document.getElementById("btn-engine-priority");
+        if (prb) prb.classList.remove("active");
+
+        objScale = 25.0;
+        const orv = document.getElementById("v-rad");
+        if (orv) orv.innerText = "25.0";
+        const osl = document.getElementById("osize-slider");
+        if (osl) osl.value = 25.0;
+      };
+
+      window.toggleCamera = () => {
+        camActive = !camActive;
+        const status = document.getElementById("cam-status");
+        const btn = document.getElementById("btn-cam-lock");
+        if (status) status.innerText = camActive ? "ON" : "OFF";
+        if (btn) btn.classList.toggle("active", camActive);
+      };
+
+      async function start() {
+        // Theme Reset to Light Default immediately
+        document.documentElement.setAttribute("data-theme", "light");
+
+        // Initialize UI components and icons
+        if (window.lucide) window.lucide.createIcons();
+
+        // Start with stable defaults via state setters
+        setGravity(0, "zero");
+        setInterMode(0); // Warp Default
+        setRotation(3);
+        setCollision(1);
+        setCentralRad(25.0);
+        setDensity(16384);
+        setEntropy(0.0);
+        setForce(3.0);
+        setZoom(0.5);
+        
+        particleType = 0; // Sphere default
+        const typeEl = document.getElementById("v-type");
+        if (typeEl) typeEl.innerText = "TRUE SPHERE";
+
+        const gpu = navigator.gpu;
+        if (!gpu) {
+          document.getElementById("status").innerText = "WebGPU Not Supported";
+          return;
+        }
+
+        const adapter = await gpu.requestAdapter();
+        const device = await adapter.requestDevice();
+
+        let sidebarAnim = 0;
+        let targetSidebarAnim = 0;
+
+        window.toggleSidebar = () => {
+          const sidebar = document.querySelector(".sidebar");
+          sidebar.classList.toggle("collapsed");
+          // Dispatching resize is no longer needed as we shift the camera instead of resizing the buffer
+        };
+
+        const canvas = document.getElementById("canvas");
+        const context = canvas.getContext("webgpu");
+        const format = gpu.getPreferredCanvasFormat();
+
+        window.gDevice = device;
+        window.gFormat = format;
+
+        const setCanvasSize = () => {
+          const dpr = window.devicePixelRatio || 1;
+          const newWidth = Math.ceil(canvas.clientWidth * dpr);
+          const newHeight = Math.ceil(canvas.clientHeight * dpr);
+          
+          if (canvas.width === newWidth && canvas.height === newHeight) return;
+
+          canvas.width = newWidth;
+          canvas.height = newHeight;
+          if (window.gDevice) {
+            context.configure({
+              device: window.gDevice,
+              format: window.gFormat,
+              alphaMode: "premultiplied",
+            });
+          }
+        };
+        setCanvasSize();
+
+        const createDepthTex = () =>
+          device.createTexture({
+            size: [canvas.width, canvas.height],
+            format: "depth24plus",
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+          });
+        let depthTex = createDepthTex();
+        window.gDepthTex = depthTex;
+
+        const createParticleData = (count) => {
+          const data = new Float32Array(16384 * 32); // 32 floats per particle
+          for (let i = 0; i < count; i++) {
+            const off = i * 32;
+            data[off + 0] = (Math.random() - 0.5) * 1.8;
+            data[off + 1] = (Math.random() - 0.5) * 1.8;
+            data[off + 2] = (Math.random() - 0.5) * 1.8;
+            data[off + 3] = 1;
+            // Prev pos
+            data[off + 8] = data[off + 0];
+            data[off + 9] = data[off + 1];
+            data[off + 10] = data[off + 2];
+            
+            // Orientation (Quaternion Identity [0,0,0,1])
+            data[off + 12] = 0;
+            data[off + 13] = 0;
+            data[off + 14] = 0;
+            data[off + 15] = 1;
+            
+            // Color (hsv style)
+            const hue = i / count;
+            data[off + 24] = 0.5 + 0.5 * Math.sin(hue * 6.28);
+            data[off + 25] = 0.5 + 0.5 * Math.sin(hue * 6.28 + 2.0);
+            data[off + 26] = 0.5 + 0.5 * Math.sin(hue * 6.28 + 4.0);
+            data[off + 27] = 1;
+          }
+          return data;
+        };
+
+        const BU = GPUBufferUsage;
+        const bufA = device.createBuffer({
+          size: 16384 * 32 * 4,
+          usage: BU.STORAGE | BU.COPY_DST,
+        });
+        const bufB = device.createBuffer({
+          size: 16384 * 32 * 4,
+          usage: BU.STORAGE | BU.COPY_DST,
+        });
+
+        window.resetSim = async () => {
+          const btn = document.getElementById("btn-reboot");
+          const text = document.getElementById("reboot-text");
+          const spinner = document.getElementById("reboot-spinner");
+
+          if (btn) btn.style.pointerEvents = "none";
+          if (text) text.innerText = "SYNCING...";
+          if (spinner) spinner.style.display = "block";
+
+          const newData = createParticleData(16384);
+          device.queue.writeBuffer(bufA, 0, newData);
+          device.queue.writeBuffer(bufB, 0, newData);
+          
+          particleType = 0; // Sphere
+          if (document.getElementById("v-type")) document.getElementById("v-type").innerText = "TRUE SPHERE";
+          
+          currentMaxParticles = 16384;
+          if (document.getElementById("v-density")) document.getElementById("v-density").innerText = "16384";
+          const dsld = document.getElementById("density-slider");
+          if (dsld) dsld.value = 16384;
+
+          window.resetSettings(); // full wipe of settings too
+
+          // Mechanical delay for visual feedback & pipeline sync
+          await new Promise((r) => setTimeout(r, 600));
+
+          if (btn) btn.style.pointerEvents = "all";
+          if (text) text.innerText = "REBOOT SIMULATION";
+          if (spinner) spinner.style.display = "none";
+        };
+        resetSim();
+
+        const uniBuf = device.createBuffer({
+          size: 128,
+          usage: BU.UNIFORM | BU.COPY_DST,
+        });
+        const sceneBuf = device.createBuffer({
+          size: 144,
+          usage: BU.UNIFORM | BU.COPY_DST,
+        });
+        const gCount = device.createBuffer({
+          size: TABLE_SIZE * 4,
+          usage: BU.STORAGE | BU.COPY_DST,
+        });
+        const gCell = device.createBuffer({
+          size: TABLE_SIZE * MAX_CELL_PARTICLES * 4,
+          usage: BU.STORAGE,
+        });
+
+        const pMod = device.createShaderModule({ code: PHYSICS_WGSL });
+        const rMod = device.createShaderModule({ code: RENDER_WGSL });
+
+        const SS = GPUShaderStage;
+        const physLayout = device.createBindGroupLayout({
+          entries: [
+            { binding: 0, visibility: SS.COMPUTE, buffer: { type: "storage" } },
+            { binding: 1, visibility: SS.COMPUTE, buffer: { type: "storage" } },
+            { binding: 2, visibility: SS.COMPUTE, buffer: { type: "uniform" } },
+          ],
+        });
+        const gridLayout = device.createBindGroupLayout({
+          entries: [
+            { binding: 0, visibility: SS.COMPUTE, buffer: { type: "storage" } },
+            { binding: 1, visibility: SS.COMPUTE, buffer: { type: "storage" } },
+          ],
+        });
+
+        const pipeInt = device.createComputePipeline({
+          layout: device.createPipelineLayout({
+            bindGroupLayouts: [physLayout, gridLayout],
+          }),
+          compute: { module: pMod, entryPoint: "integrate" },
+        });
+        const pipeClr = device.createComputePipeline({
+          layout: device.createPipelineLayout({
+            bindGroupLayouts: [physLayout, gridLayout],
+          }),
+          compute: { module: pMod, entryPoint: "clear_grid" },
+        });
+        const pipeGrd = device.createComputePipeline({
+          layout: device.createPipelineLayout({
+            bindGroupLayouts: [physLayout, gridLayout],
+          }),
+          compute: { module: pMod, entryPoint: "update_grid" },
+        });
+        const pipeSlv = device.createComputePipeline({
+          layout: device.createPipelineLayout({
+            bindGroupLayouts: [physLayout, gridLayout],
+          }),
+          compute: { module: pMod, entryPoint: "solve_constraints" },
+        });
+        const pipeFin = device.createComputePipeline({
+          layout: device.createPipelineLayout({
+            bindGroupLayouts: [physLayout, gridLayout],
+          }),
+          compute: { module: pMod, entryPoint: "finalize" },
+        });
+
+        const rPipe = device.createRenderPipeline({
+          layout: "auto",
+          vertex: { module: rMod, entryPoint: "vs" },
+          fragment: { module: rMod, entryPoint: "fs", targets: [{ format }] },
+          depthStencil: {
+            depthWriteEnabled: true,
+            depthCompare: "less",
+            format: "depth24plus",
+          },
+        });
+
+        const bgA = device.createBindGroup({
+          layout: physLayout,
+          entries: [
+            { binding: 0, resource: { buffer: bufA } },
+            { binding: 1, resource: { buffer: bufB } },
+            { binding: 2, resource: { buffer: uniBuf } },
+          ],
+        });
+        const bgB = device.createBindGroup({
+          layout: physLayout,
+          entries: [
+            { binding: 0, resource: { buffer: bufB } },
+            { binding: 1, resource: { buffer: bufA } },
+            { binding: 2, resource: { buffer: uniBuf } },
+          ],
+        });
+        const bgG = device.createBindGroup({
+          layout: gridLayout,
+          entries: [
+            { binding: 0, resource: { buffer: gCount } },
+            { binding: 1, resource: { buffer: gCell } },
+          ],
+        });
+        const rbgA = device.createBindGroup({
+          layout: rPipe.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: sceneBuf } },
+            { binding: 1, resource: { buffer: bufA } },
+            { binding: 2, resource: { buffer: uniBuf } },
+          ],
+        });
+        const rbgB = device.createBindGroup({
+          layout: rPipe.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: sceneBuf } },
+            { binding: 1, resource: { buffer: bufB } },
+            { binding: 2, resource: { buffer: uniBuf } },
+          ],
+        });
+
+        // Input Handling
+        let lastMouseX = 0,
+          lastMouseY = 0;
+        let currentClientX = 0,
+          currentClientY = 0;
+        let mouseX = 0,
+          mouseY = 0;
+
+        // Prevent UI events from bleeding into world interaction
+        [
+          "mousedown",
+          "mousemove",
+          "mouseup",
+          "wheel",
+          "touchstart",
+          "touchend",
+          "click",
+        ].forEach((evt) => {
+          document
+            .querySelector(".sidebar")
+            .addEventListener(evt, (e) => e.stopPropagation());
+        });
+
+        const ro = new ResizeObserver(() => {
+          setCanvasSize();
+          if (window.gDevice && window.gDepthTex) {
+            window.gDepthTex.destroy();
+            window.gDepthTex = window.gDevice.createTexture({
+              size: [canvas.width, canvas.height],
+              format: "depth24plus",
+              usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            });
+            window.depthView = window.gDepthTex.createView();
+          }
+        });
+        ro.observe(canvas);
+
+        window.addEventListener("mousedown", (e) => {
+          if (
+            e.target.closest(".sidebar") ||
+            e.target.closest(".sidebar-toggle")
+          )
+            return;
+          if (e.button === 0) {
+            isMouseDown = true;
+            if (objDragMode > 0.5) {
+              isDragging = true;
+              // Simple depth estimation or use fixed capture
+              // Fallback to current zoom/4 if we don't have object pos here
+              dragDistance = zoom * 0.45; 
+            }
+          }
+          if (e.button === 1 || (e.button === 2 && e.shiftKey))
+            isMidDown = true;
+          else if (e.button === 2) isRightDown = true;
+          lastMouseX = e.clientX;
+          lastMouseY = e.clientY;
+        });
+        window.addEventListener("mouseup", (e) => {
+          if (e.button === 0) {
+            isMouseDown = false;
+            isDragging = false;
+          }
+          if (e.button === 1 || e.button === 2) isMidDown = false;
+          if (e.button === 2) isRightDown = false;
+        });
+        window.addEventListener("contextmenu", (e) => e.preventDefault());
+
+        window.addEventListener("mousemove", (e) => {
+          currentClientX = e.clientX;
+          currentClientY = e.clientY;
+
+          const dx = e.clientX - lastMouseX;
+          const dy = e.clientY - lastMouseY;
+
+          if (isMidDown) {
+            const s = zoom * 0.002;
+            panX += dx * s;
+            panY -= dy * s;
+          } else if (isRightDown) {
+            camYaw += dx * 0.01;
+            camPitch = Math.max(-1.5, Math.min(1.5, camPitch + dy * 0.01));
+          }
+
+          lastMouseX = e.clientX;
+          lastMouseY = e.clientY;
+        });
+        window.addEventListener(
+          "wheel",
+          (e) => {
+            // Reversed scroll for zoom intuition
+            const delta = e.deltaY * 0.0005;
+            const currentVal = parseFloat(
+              document.getElementById("zoom-slider").value,
+            );
+            const nextVal = Math.max(0, Math.min(1.0, currentVal - delta));
+
+            document.getElementById("zoom-slider").value = nextVal;
+            setZoom(nextVal);
+          },
+          { passive: true },
+        );
+
+        window.addEventListener("resize", () => {
+          setCanvasSize();
+          depthTex.destroy();
+          depthTex = device.createTexture({
+            size: [canvas.width, canvas.height],
+            format: "depth24plus",
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+          });
+          window.depthView = depthTex.createView();
+        });
+
+        let last = performance.now(),
+          startT = last,
+          ping = true;
+        let frames = 0,
+          lastFpsUpdate = last;
+        let avgFrameTime = 2.0;
+
+        document.getElementById("loading-screen").style.display = "none";
+
+        const tData = new Float32Array(32);
+        const eyeData = new Float32Array(5);
+
+        // Pre-allocate matrix buffers to avoid per-frame GC pressure
+        const mProj = new Float32Array(16);
+        const mView = new Float32Array(16);
+        const mVP = new Float32Array(16);
+        const mInvVP = new Float32Array(16);
+        const mTrans = new Float32Array(16);
+        const mRotX = new Float32Array(16);
+        const mRotY = new Float32Array(16);
+        const mTemp = new Float32Array(16);
+        const vNear = [0, 0, 0, 0];
+        const vFar = [0, 0, 0, 0];
+        const vN = [0, 0, 0];
+        const vF = [0, 0, 0];
+        const vRD = [0, 0, 0];
+        const vCounts = [36, 6, 36, 12, 24, 108, 60];
+
+        // Cache initial depth view
+        window.depthView = depthTex.createView();
+
+        // Initial UI Sync
+        const labels = ["TRUE SPHERE", "CAPSULE", "CUBE", "TETRAHEDRON", "OCTAHEDRON", "DODECAHEDRON", "ICOSAHEDRON"];
+        document.getElementById("v-type").innerText = labels[particleType];
+        
+        // Ensure UI state matches logical defaults without triggering toggles
+        const vImodeEl = document.getElementById("v-imode");
+        if (vImodeEl) vImodeEl.innerText = "Warp";
+        const warpBtn = document.getElementById("mode-0");
+        if (warpBtn) warpBtn.classList.add("active");
+        
+        window.setCollision(collisionMode);
+        window.setGravity(gravityVal, "zero"); // Initialize visual state for zero G
+
+        function frame() {
+          const frameStart = performance.now();
+          const now = performance.now();
+          const delta = now - last;
+
+          const interval = 1000 / targetFPS;
+          // Avoid too-aggressive capping if hardware is capable
+          if (targetFPS < 200 && delta < interval - 1) {
+            requestAnimationFrame(frame);
+            return;
+          }
+
+          last = now;
+          frames++;
+
+          // Sidebar transition state
+          const sidebar = document.getElementById("sidebar");
+          const toggleBtn = document.querySelector(".sidebar-toggle");
+          const isSidebarOpen = !sidebar.classList.contains("collapsed");
+          
+          targetSidebarAnim = isSidebarOpen ? 1 : 0;
+          sidebarAnim += (targetSidebarAnim - sidebarAnim) * 0.16;
+
+          // Directly drive UI transforms for perfect sync with camera shift
+          const sidebarX = (sidebarAnim - 1) * 300;
+          sidebar.style.transform = `translateX(${sidebarX}px)`;
+          if (toggleBtn) {
+            toggleBtn.style.left = `${20 + sidebarAnim * 300}px`;
+          }
+
+          if (now - lastFpsUpdate > 1000) {
+            const actualFps = (frames * 1000) / (now - lastFpsUpdate);
+            updateStatsUI(actualFps, avgFrameTime);
+            frames = 0;
+            lastFpsUpdate = now;
+          }
+
+          // Adaptive Engine Logic
+          let SUBSTEPS = 4;
+          if (priorityMode === 1) {
+            // If frame time > 14ms (near 60fps limit), reduce substeps to keep UI fluid
+            if (avgFrameTime > 13.5) SUBSTEPS = 2;
+            if (avgFrameTime > 22.0) SUBSTEPS = 1;
+          }
+          
+          const dt = Math.min(delta / 1000, 0.02) / SUBSTEPS;
+
+          const rect = canvas.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            mouseX = ((currentClientX - rect.left) / rect.width) * 2 - 1;
+            mouseY = -(((currentClientY - rect.top) / rect.height) * 2 - 1);
+          }
+
+          mat4.perspective(
+            Math.PI / 3.5,
+            canvas.width / canvas.height,
+            0.001,
+            100,
+            mProj
+          );
+
+          // Handle complex drift modes
+          if (driftMode === 1) camYaw += driftSpeed * 0.01;
+          else if (driftMode === 2) camYaw -= driftSpeed * 0.01;
+          else if (driftMode === 3) camPitch += driftSpeed * 0.01;
+          else if (driftMode === 4) camPitch -= driftSpeed * 0.01;
+
+          const viewShift = sidebarAnim * (300 / window.innerWidth) * zoom * 0.45;
+
+          mat4.identity(mTrans);
+          mat4.translate(mTrans, [panX + viewShift, panY, -zoom], mView);
+          mat4.fromRotationX(camPitch, mRotX);
+          mat4.fromRotationY(camYaw, mRotY);
+          mat4.multiply(mRotX, mRotY, mTemp);
+          mat4.multiply(mView, mTemp, mView);
+
+          mat4.multiply(mProj, mView, mVP);
+          mat4.invert(mVP, mInvVP);
+
+          if (mInvVP) {
+            mat4.multiplyVec(mInvVP, [mouseX, mouseY, 0, 1], vNear);
+            mat4.multiplyVec(mInvVP, [mouseX, mouseY, 1, 1], vFar);
+            
+            vN[0] = vNear[0] / vNear[3]; vN[1] = vNear[1] / vNear[3]; vN[2] = vNear[2] / vNear[3];
+            vF[0] = vFar[0] / vFar[3]; vF[1] = vFar[1] / vFar[3]; vF[2] = vFar[2] / vFar[3];
+            
+            vRD[0] = vF[0] - vN[0]; vRD[1] = vF[1] - vN[1]; vRD[2] = vF[2] - vN[2];
+            normalize3(vRD, vRD);
+
+            // Unified Interaction Ray
+            window.lastRayDir = [...vRD]; // Small allocation if changed, but safe reference
+            window.lastViewDir = [
+              Math.sin(camYaw) * Math.cos(camPitch),
+              Math.sin(camPitch),
+              -Math.cos(camYaw) * Math.cos(camPitch),
+            ];
+            
+            mat4.invert(mView, mTemp);
+            window.lastEyePos = mTemp ? [mTemp[12], mTemp[13], mTemp[14]] : [0,0,5];
+
+            if (objDragMode > 0.5 && isDragging) {
+              // Smoothly follow the mouse with distance tracking
+              mouseInWorld = [
+                vN[0] + vRD[0] * dragDistance,
+                vN[1] + vRD[1] * dragDistance,
+                vN[2] + vRD[2] * dragDistance,
+                1.0,
+              ];
+            } else {
+              mouseInWorld = [vN[0], vN[1], vN[2], 1.0];
+            }
+          }
+
+          const actualStrength = isMouseDown ? forceStrength : 0;
+          const vDir = window.lastRayDir || [0, 0, -1];
+          const eyePos = window.lastEyePos || [0, 0, 5];
+          
+          tData[0] = dt;
+          tData[1] = gravityVal;
+          tData[2] = 0.3;
+          tData[3] = RADIUS;
+          tData[4] = currentMaxParticles;
+          tData[5] = TABLE_SIZE;
+          tData[6] = BOUNDS;
+          tData[7] = (now - startT) / 1000;
+          tData[8] = mouseInWorld[0];
+          tData[9] = mouseInWorld[1];
+          tData[10] = mouseInWorld[2];
+          tData[11] = mouseInWorld[3];
+          tData[12] = vDir[0];
+          tData[13] = vDir[1];
+          tData[14] = vDir[2];
+          tData[15] = 0;
+          tData[16] = eyePos[0];
+          tData[17] = eyePos[1];
+          tData[18] = eyePos[2];
+          tData[19] = 0;
+          tData[20] = interMode;
+          tData[21] = actualStrength;
+          tData[22] = entropyStr;
+          tData[23] = collisionMode;
+          tData[24] = particleType;
+          tData[25] = lightInt;
+          tData[26] = rotMode;
+          tData[27] = chromaticMode;
+          tData[28] = objDragMode;
+          tData[29] = objScale;
+          tData[30] = pSize;
+          tData[31] = 0;
+          
+          device.queue.writeBuffer(uniBuf, 0, tData);
+          device.queue.writeBuffer(sceneBuf, 0, mVP);
+          
+          const exactEyePos = window.lastEyePos || [0, 0, 5];
+          eyeData[0] = exactEyePos[0];
+          eyeData[1] = exactEyePos[1];
+          eyeData[2] = exactEyePos[2];
+          eyeData[3] = 1;
+          eyeData[4] = (now - startT) / 1000;
+          device.queue.writeBuffer(sceneBuf, 64, eyeData);
+          
+          const enc = device.createCommandEncoder();
+          const cp = enc.beginComputePass();
+
+          // Optimization: Execute all substeps in a single continuous compute pass
+          for (let s = 0; s < SUBSTEPS; s++) {
+            // Ping-pong bindgroup within the pass
+            const passBG = ping ? bgA : bgB;
+            cp.setBindGroup(0, passBG);
+            cp.setBindGroup(1, bgG);
+            
+            // Dispatch 0: Clear Grid using compute shader instead of clearBuffer
+            cp.setPipeline(pipeClr);
+            cp.dispatchWorkgroups(Math.ceil(TABLE_SIZE / 64));
+            
+            // Dispatch 1: Integration & Grid Update
+            cp.setPipeline(pipeInt);
+            cp.dispatchWorkgroups(Math.ceil(currentMaxParticles / 64));
+            cp.setPipeline(pipeGrd);
+            cp.dispatchWorkgroups(Math.ceil(currentMaxParticles / 64));
+            
+            // Dispatch 2: Solver
+            cp.setPipeline(pipeSlv);
+            cp.dispatchWorkgroups(Math.ceil(currentMaxParticles / 64));
+            
+            // Dispatch 3: Finalize
+            cp.setPipeline(pipeFin);
+            cp.dispatchWorkgroups(Math.ceil(currentMaxParticles / 64));
+            
+            ping = !ping;
+          }
+          
+          cp.end();
+
+          const isLight = document.documentElement.getAttribute("data-theme") === "light";
+          const targetClear = isLight
+            ? { r: 0.48, g: 0.55, b: 0.64, a: 1 }
+            : { r: 0.10, g: 0.10, b: 0.14, a: 1 };
+
+          if (!window.currentClearColor) {
+            window.currentClearColor = { ...targetClear };
+          } else {
+            const ease = 0.01;
+            window.currentClearColor.r += (targetClear.r - window.currentClearColor.r) * ease;
+            window.currentClearColor.g += (targetClear.g - window.currentClearColor.g) * ease;
+            window.currentClearColor.b += (targetClear.b - window.currentClearColor.b) * ease;
+          }
+
+          const rp = enc.beginRenderPass({
+            colorAttachments: [
+              {
+                view: context.getCurrentTexture().createView(),
+                clearValue: window.currentClearColor,
+                loadOp: "clear",
+                storeOp: "store",
+              },
+            ],
+            depthStencilAttachment: {
+              view: window.depthView,
+              depthClearValue: 1,
+              depthLoadOp: "clear",
+              depthStoreOp: "store",
+            },
+          });
+          rp.setPipeline(rPipe);
+          // Renderer reads the result of the last compute pass
+          rp.setBindGroup(0, ping ? rbgA : rbgB);
+          rp.draw(vCounts[particleType], currentMaxParticles);
+          rp.end();
+
+          device.queue.submit([enc.finish()]);
+          
+          const frameEnd = performance.now();
+          avgFrameTime = avgFrameTime * 0.95 + (frameEnd - frameStart) * 0.05;
+          
+          requestAnimationFrame(frame);
+        }
+
+        function normalize3(v, out = [0, 0, 0]) {
+          const l = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) || 1;
+          out[0] = v[0] / l;
+          out[1] = v[1] / l;
+          out[2] = v[2] / l;
+          return out;
+        }
+        requestAnimationFrame(frame);
+      }
+      start();
+    </script>
+  </body>
+</html>
